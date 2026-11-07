@@ -1,0 +1,275 @@
+/* Pyrite9 Sleeve Roll — SleeveRoll 인스펙터 (디자인 'Assay', Orbit Ring OrbitRingInspector.uss를 옮기고 접두만 or- → sr-)
+   바탕 #15171C · 글자 #E6E8EC · 라벨 #9AA0AD · 흐림 #7D8391 · 섹션 제목 #C9CDD5
+   테두리 #2E323C · 구분선 #23262E · 칸 바탕 #1C1F26 · 선택 바탕 #2A2618 · 금색 #E2CE74 · 바뀐 칸 테두리 #4A4226 */
+
+.sr-root {
+    background-color: #15171C;
+    color: #E6E8EC;
+    margin: 0 -6px 4px -15px;
+    padding-bottom: 14px;
+    font-size: 14px;
+}
+
+/* 머리 */
+.sr-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 16px 16px 12px 16px;
+    border-bottom-width: 1px;
+    border-bottom-color: #E2CE74;
+}
+.sr-header__left { flex-direction: row; align-items: center; }
+.sr-glyph { width: 34px; height: 34px; margin-right: 12px; flex-shrink: 0; }
+.sr-header__titles { flex-direction: column; }
+.sr-kicker { font-size: 12px; letter-spacing: 3px; color: #9AA0AD; padding: 0; margin: 0 0 1px 0; }
+.sr-title { font-size: 20px; -unity-font-style: bold; color: #E6E8EC; padding: 0; margin: 0; }
+.sr-versionbox { flex-direction: column; align-items: flex-end; }
+.sr-version { font-size: 13px; color: #9AA0AD; padding: 0; margin: 0; }
+.sr-version:hover { color: #E6E8EC; }
+.sr-update { font-size: 12px; color: #7D8391; padding: 0; margin: 2px 0 1px 0; }
+.sr-update--new { color: #15171C; background-color: #E2CE74; border-radius: 2px; padding: 1px 5px; -unity-font-style: bold; }
+.sr-update--new:hover { background-color: #FFE7A0; }
+
+/* 몸통·섹션 */
+.sr-body { padding: 14px 16px 0 16px; }
+.sr-section { flex-direction: column; }
+.sr-section__head { flex-direction: row; align-items: center; margin-bottom: 8px; }
+.sr-section__num { font-size: 12px; color: #E2CE74; padding: 0; margin: 0 10px 0 0; }
+.sr-section__title { flex-grow: 1; font-size: 13px; -unity-font-style: bold; letter-spacing: 1.5px; color: #C9CDD5; padding: 0; margin: 0; }
+.sr-section__meta { font-size: 12px; color: #7D8391; padding: 0; margin: 0; }
+.sr-divider { height: 1px; background-color: #23262E; margin: 12px 0; }
+
+.sr-rows { flex-direction: column; }
+.sr-row { flex-direction: row; align-items: center; min-height: 32px; margin-bottom: 4px; }
+.sr-label { width: 140px; flex-shrink: 0; color: #9AA0AD; padding: 0; margin: 0; -unity-text-align: middle-left; }
+.sr-row__control { flex-grow: 1; }
+
+/* 버튼 묶음(메뉴 언어·소매) */
+.sr-seg {
+    flex-direction: row;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 4px;
+    overflow: hidden;
+    height: 26px;
+}
+.sr-seg__item {
+    flex-grow: 1;
+    flex-basis: 0;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-left-width: 1px;
+    border-color: #2E323C;
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: #9AA0AD;
+    font-size: 14px;
+}
+.sr-seg__item--first { border-left-width: 0; }
+.sr-seg__item:hover { background-color: #1C1F26; color: #E6E8EC; }
+.sr-seg__item--on, .sr-seg__item--on:hover { background-color: #2A2618; color: #E2CE74; -unity-font-style: bold; }
+
+/* 체크 */
+.sr-check { flex-direction: row; align-items: center; flex-shrink: 1; min-width: 0; }
+.sr-toggle { margin: 0 8px 0 0; }
+.sr-toggle .unity-toggle__checkmark {
+    width: 16px;
+    height: 16px;
+    background-color: #1C1F26;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 3px;
+    background-image: none;
+}
+.sr-toggle:checked .unity-toggle__checkmark,
+.sr-toggle .unity-toggle__input:checked > .unity-toggle__checkmark { background-color: #E2CE74; border-color: #E2CE74; background-image: none; }
+.sr-toggle:hover .unity-toggle__checkmark { border-color: #7D8391; }
+.sr-check__text { flex-shrink: 1; white-space: normal; color: #C9CDD5; padding: 0; margin: 0; }
+
+/* 미세 조정 줄: 라벨 · 게이지 · 값 */
+/* 게이지 행: 윗줄 이름 + 값, 아랫줄 막대 + 양끝 뜻 — 좁은 인스펙터에서도 막대가 안 찌그러진다 */
+.sr-offset { flex-direction: column; margin-bottom: 2px; }
+.sr-offset__head { flex-direction: row; align-items: center; min-height: 24px; }
+.sr-offset__head .sr-label { width: auto; flex-grow: 1; flex-shrink: 1; }
+.sr-offset__bar { flex-direction: row; align-items: center; min-height: 20px; }
+.sr-offset__end { color: #9AA0AD; padding: 0; margin: 0; white-space: nowrap; flex-shrink: 0; }
+.sr-offset__unit { color: #9AA0AD; padding: 0; margin: 0 0 0 4px; width: 20px; }
+.sr-gauge { flex-grow: 1; flex-shrink: 1; min-width: 40px; height: 18px; margin: 0 10px; }
+/* 행 밑에 늘 보이는 설명 한 줄(툴팁을 안 눌러도 뭐 하는 건지 알게, 2026-11-06 관리자 피드백) */
+.sr-desc { color: #9AA0AD; white-space: normal; padding: 0; margin: 0 0 10px 0; }
+.sr-desc--child { padding-left: 22px; }
+.sr-gauge__track { position: absolute; left: 0; right: 0; top: 8px; height: 2px; background-color: #2E323C; }
+.sr-gauge__fill { position: absolute; top: 8px; height: 2px; background-color: #E2CE74; }
+/* 어색해지기 쉬운 구간: 노랑 + 주황, 막대보다 굵게. 값은 어디든 고를 수 있다 */
+.sr-gauge__zone { position: absolute; top: 7px; height: 4px; }
+.sr-gauge__zone--warn { background-color: #E2CE74; }
+.sr-gauge__zone--danger { background-color: #FF8A4C; }
+.sr-gauge__knob {
+    position: absolute;
+    top: 4px;
+    width: 2px;
+    height: 10px;
+    margin-left: -1px;
+    background-color: #C9CDD5;
+}
+.sr-offset--on .sr-gauge__knob { background-color: #E2CE74; }
+.sr-offset--danger .sr-gauge__knob { background-color: #FF8A4C; }
+.sr-offset--on .sr-label { color: #E6E8EC; }
+
+.sr-value { width: 64px; flex-shrink: 0; margin: 0; }
+.sr-value .unity-base-text-field__input, .sr-value .unity-float-field__input {
+    height: 24px;
+    background-color: #1C1F26;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 3px;
+    color: #E6E8EC;
+    font-size: 13px;
+    -unity-text-align: middle-right;
+    padding: 0 6px;
+}
+.sr-value:focus .unity-base-text-field__input { border-color: #7D8391; }
+.sr-offset--on .sr-value .unity-base-text-field__input { border-color: #4A4226; color: #E2CE74; }
+.sr-offset--danger .sr-value .unity-base-text-field__input { border-color: #5A3524; color: #FF8A4C; }
+
+/* 마지막 빌드 */
+.sr-facts { flex-direction: column; }
+.sr-fact { flex-direction: row; align-items: center; min-height: 20px; margin-bottom: 2px; }
+.sr-fact__value { flex-grow: 1; flex-shrink: 1; color: #E6E8EC; font-size: 13px; padding: 0; margin: 0; white-space: normal; }
+.sr-fact__value--gold { color: #E2CE74; }
+/* 경고: 주황 띠 + 어두운 주황 바탕 + 아이콘 — 회색 메모(or-note)·금색 강조(--gold)와 섞여 안 읽히던 것(2026-10-22) */
+.sr-warn {
+    flex-direction: row;
+    align-items: flex-start;
+    background-color: #3A1F14;
+    border-left-width: 4px;
+    border-left-color: #FF8A4C;
+    border-radius: 3px;
+    padding: 8px 10px 8px 8px;
+    margin: 8px 0 0 0;
+}
+.sr-warn__icon { width: 18px; height: 18px; margin: 0 8px 0 0; flex-shrink: 0; }
+.sr-warn__text { flex-grow: 1; flex-shrink: 1; color: #FFE3D3; font-size: 13px; -unity-font-style: bold; white-space: normal; padding: 0; margin: 0; }
+.sr-warn__ok {
+    flex-shrink: 0;
+    height: 22px;
+    margin: -2px 0 0 8px;
+    padding: 0 10px;
+    font-size: 12px;
+    color: #FFE3D3;
+    background-color: #5A2E1C;
+    border-width: 1px;
+    border-color: #FF8A4C;
+    border-radius: 3px;
+}
+.sr-warn__ok:hover { background-color: #6E3822; color: #FFFFFF; }
+/* 확인 누른 경고: 한 줄로 접고 흐리게(내용은 마우스를 올리면) — 이미 조절한 사람에게 계속 소리치지 않게(2026-10-22) */
+.sr-warn--ok { align-items: center; background-color: #262022; border-left-color: #7A4A30; padding: 4px 8px 4px 8px; margin-top: 4px; }
+.sr-warn--ok .sr-warn__icon { opacity: 0.5; }
+.sr-warn--ok .sr-warn__text { color: #8F857F; font-size: 12px; -unity-font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-warn--ok .sr-warn__ok { margin-top: 0; height: 20px; color: #B8A49A; background-color: #2E2628; border-color: #4A3A34; }
+.sr-fact__value--warn { color: #FF8A4C; -unity-font-style: bold; }
+.sr-note { color: #7D8391; white-space: normal; padding: 0; margin: 0; }
+.sr-note--gap { margin: 2px 0 8px 0; }
+/* 확인할 사실 한 줄(메모 자리, 금색) — .sr-note 뒤에 둬야 색이 이긴다 */
+.sr-note--gold { color: #E2CE74; }
+
+/* 소개·기능 */
+.sr-intro { color: #C9CDD5; white-space: normal; padding: 0; margin: 0 0 10px 0; }
+.sr-fold__head { flex-direction: row; align-items: center; margin-bottom: 6px; }
+.sr-fold__title { font-size: 12px; letter-spacing: 1.5px; -unity-font-style: bold; color: #7D8391; padding: 0; margin: 0 6px 0 0; }
+.sr-fold__head:hover .sr-fold__title { color: #E2CE74; }
+.sr-fold__chevron { width: 10px; height: 10px; }
+.sr-features { flex-direction: column; }
+.sr-feature { flex-direction: row; align-items: flex-start; margin-bottom: 5px; }
+.sr-feature__dot { width: 4px; height: 4px; margin: 6px 9px 0 1px; background-color: #E2CE74; flex-shrink: 0; }
+.sr-feature__text { flex-grow: 1; flex-shrink: 1; white-space: normal; color: #9AA0AD; font-size: 13px; padding: 0; margin: 0; }
+
+/* 변경 기록 */
+.sr-changelog { color: #9AA0AD; font-size: 13px; white-space: normal; padding: 0; margin: 0; }
+.sr-link { color: #7D8391; font-size: 13px; padding: 0; margin: 6px 0 0 0; }
+.sr-link:hover { color: #E2CE74; }
+
+.sr-buttons { flex-direction: row; margin-top: 10px; }
+.sr-button {
+    height: 28px;
+    margin: 0 8px 0 0;
+    padding: 0 14px;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 4px;
+    background-color: #1C1F26;
+    color: #E6E8EC;
+    font-size: 14px;
+}
+.sr-button:hover { border-color: #E2CE74; color: #E2CE74; }
+.sr-button:active { background-color: #2A2618; }
+.sr-button:disabled { color: #7D8391; border-color: #23262E; }
+
+/* 쌓은 줄 · 필드 칸 */
+.sr-row--stack { flex-direction: column; align-items: stretch; }
+.sr-row--stack .sr-label { width: auto; margin-bottom: 4px; }
+.sr-field { flex-grow: 1; flex-shrink: 1; min-width: 0; margin: 0; }
+.sr-field .unity-object-field__input {
+    height: 24px;
+    background-color: #1C1F26;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 3px;
+    color: #E6E8EC;
+}
+.sr-row__control { min-width: 0; }
+
+/* 자식 행(Pulse Watch 2026-10-28에서): 위 행이 켜져야 의미 있는 설정 — 들여쓰기 + 위 행에서 내려오는 연결선(or-row__link, painter2D),
+   부모가 꺼지면 C#이 SetEnabled(false)로 흐림. 부모와 자식은 or-group으로 묶어 붙여 둔다 */
+.sr-group { margin-bottom: 4px; }
+.sr-group > .sr-row, .sr-group > .sr-offset { margin-bottom: 0; }
+.sr-row--child { padding-left: 22px; }
+.sr-row--child .sr-label { width: 118px; }
+.sr-row__link { position: absolute; left: 6px; top: -6px; width: 11px; height: 22px; }
+/* 글 칸(메뉴 이름) */
+.sr-text { flex-grow: 1; flex-shrink: 1; min-width: 0; margin: 0; }
+.sr-text .unity-base-text-field__input {
+    height: 24px;
+    padding: 0 6px;
+    background-color: #1C1F26;
+    border-width: 1px;
+    border-color: #2E323C;
+    border-radius: 3px;
+    color: #E6E8EC;
+}
+.sr-text .unity-base-text-field__input:hover { border-color: #7D8391; }
+
+/* 원래 필드(고급 — 몸 메시 목록, 기본 모양 그대로 두되 어두운 바탕에서 읽히게) */
+.sr-raw { margin-top: 4px; }
+.sr-raw .unity-label { color: #9AA0AD; }
+.sr-raw .unity-foldout__text { color: #C9CDD5; }
+.sr-raw .unity-base-field__input, .sr-raw .unity-base-text-field__input {
+    background-color: #1C1F26;
+    border-color: #2E323C;
+    color: #E6E8EC;
+}
+
+/* Sleeve Roll: 옷 후보 버튼 줄(01 기본 — 아바타 안 소매 옷) */
+.sr-candidates { flex-direction: row; flex-wrap: wrap; margin: 2px 0 6px 0; }
+.sr-candidates .sr-button { height: 24px; padding: 0 8px; margin: 0 6px 6px 0; font-size: 12px; }
+.sr-candidate--on, .sr-candidate--on:hover { background-color: #2A2618; border-color: #E2CE74; color: #E2CE74; -unity-font-style: bold; }
+.sr-garments { flex-grow: 1; }
+.sr-garment { flex-direction: row; align-items: center; margin-bottom: 4px; }
+.sr-garment .sr-field { flex-grow: 1; }
+.sr-garment__remove { width: 24px; height: 24px; padding: 0; margin: 0 0 0 4px; font-size: 13px; }
+/* 다른 Sleeve Roll이 쓰는 후보: 흐리게(고를 수는 있음 — 고르면 '같은 옷' 경고) */
+.sr-candidate--taken { color: #9AA0AD; }
+/* 여러 줄 칸(목록에 없는 옷): 라벨을 첫 칸 높이에 맞춘다 — 가운데 정렬이면 두 줄 사이에 떠 있었다 */
+.sr-row--top { align-items: flex-start; }
+.sr-row--top > .sr-label { height: 24px; }
+
+/* 경고 + 메뉴 언어 힌트(빌드 경고는 영어 그대로, 밑에 할 일 한 줄) — 접히면 힌트는 숨김(툴팁에 같이) */
+.sr-warn__body { flex-grow: 1; flex-shrink: 1; flex-direction: column; }
+.sr-warn__body .sr-warn__text { flex-grow: 0; }
+.sr-warn__hint { color: #E8C9B8; font-size: 12px; white-space: normal; padding: 0; margin: 4px 0 0 0; }
+.sr-warn--ok .sr-warn__hint { display: none; }
+/* 설정 칸 사이에 끼는 경고(01 기본): 위아래 칸과 붙지 않게 */
+.sr-warn--inline { margin: 2px 0 8px 0; }

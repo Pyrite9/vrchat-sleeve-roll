@@ -1,0 +1,21 @@
+{
+    "name": "Pyrite9.SleeveRoll.Editor",
+    "rootNamespace": "Pyrite9.Sleeve",
+    "references": [
+        "Pyrite9.SleeveRoll.Runtime",
+        "nadena.dev.ndmf",
+        "nadena.dev.ndmf.runtime",
+        "nadena.dev.modular-avatar.core"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
