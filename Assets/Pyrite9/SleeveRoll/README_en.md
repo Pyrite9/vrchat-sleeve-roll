@@ -3,7 +3,7 @@
 Version 0.1.0 (2026-11-07)
 
 A sleeve-rolling gimmick for VRChat avatars. Drop the prefab into an avatar and pick the sleeved garment — when you build, the rolled-up sleeve is worked out from that garment's own mesh.
-Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package, so any sleeved outfit works.
+Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package — the shape is made at build time from the garment you own.
 
 한국어: `README_ko.md` / 日本語: `README_jp.md` / License: `LICENSE.txt`
 
