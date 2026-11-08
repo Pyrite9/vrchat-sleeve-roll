@@ -273,3 +273,16 @@
 .sr-warn--ok .sr-warn__hint { display: none; }
 /* 설정 칸 사이에 끼는 경고(01 기본): 위아래 칸과 붙지 않게 */
 .sr-warn--inline { margin: 2px 0 8px 0; }
+
+/* 아바타 메뉴 트리(설치 위치 밑): 줄을 누르면 거기 설치, ▸/▾로 접기. 고른 줄은 금색, 8칸 찬 메뉴의 숫자도 금색 */
+.sr-mtree { flex-grow: 1; border-width: 1px; border-color: #2E323C; border-radius: 3px; background-color: #1C1F26; padding: 3px 0; }
+.sr-mtree__row { flex-direction: row; align-items: center; height: 22px; padding-right: 8px; border-left-width: 2px; border-color: rgba(0,0,0,0); }
+.sr-mtree__row:hover { background-color: #232730; }
+.sr-mtree__row--on, .sr-mtree__row--on:hover { background-color: #2A2618; border-color: #E2CE74; }
+.sr-mtree__chev { width: 14px; color: #7D8391; padding: 0; margin: 0; -unity-text-align: middle-center; }
+.sr-mtree__chev:hover { color: #E2CE74; }
+.sr-mtree__name { color: #C9CDD5; padding: 0; margin: 0 6px 0 2px; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.sr-mtree__row--on .sr-mtree__name { color: #E2CE74; -unity-font-style: bold; }
+.sr-mtree__asset { color: #5A606C; padding: 0; margin: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.sr-mtree__count { color: #7D8391; padding: 0; margin: 0 0 0 auto; font-size: 11px; flex-shrink: 0; }
+.sr-mtree__count--full { color: #E2CE74; }

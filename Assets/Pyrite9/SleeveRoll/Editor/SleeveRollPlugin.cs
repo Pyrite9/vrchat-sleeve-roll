@@ -3,6 +3,8 @@ using System.Linq;
 using System.Text;
 using nadena.dev.ndmf;
 using UnityEngine;
+using VRC.SDK3.Avatars.Components;
+using VRC.SDK3.Avatars.ScriptableObjects;
 
 [assembly: ExportsPlugin(typeof(Pyrite9.Sleeve.SleeveRollPlugin))]
 
@@ -72,10 +74,79 @@ namespace Pyrite9.Sleeve
                 log.AppendLine("EXCEPTION " + e);
                 Debug.LogException(e);
             }
+            if (rec.built) CheckMenu(ctx, state, rec, log);
             // 설정 컴포넌트는 빌드 사본에서 뺀다 — 남으면 AAO가 "알 수 없는 컴포넌트"로 경고
             foreach (var c in comps)
                 if (c != null) Object.DestroyImmediate(c);
             Report(log.ToString(), rec);
+        }
+
+        /// <summary>
+        /// 빌드된 Expression Parameters·Menu에서 실제 결과를 읽는다 — MA가 메뉴를 설치하고 파라미터를 합친 뒤(Transforming, MA 뒤)라 최종 모양이다.
+        /// 저장 여부는 다른 선언(사용자가 직접 넣은 Saved 등)까지 합친 값. 설치 위치가 아바타 메뉴 트리 밖이면 MA는 토글을 조용히 빼므로 여기서 경고한다(D17)
+        /// </summary>
+        static void CheckMenu(BuildContext ctx, BuildState state, SrBuildRecord.Entry rec, StringBuilder log)
+        {
+            if (state.syncedBits == 0) return;
+            var desc = ctx.AvatarRootObject.GetComponent<VRCAvatarDescriptor>();
+            if (desc == null) return;
+            var p = desc.expressionParameters != null ? desc.expressionParameters.FindParameter(HoldParameter) : null;
+            rec.saved = p != null && p.saved;
+            // two switches for one parameter: usually a toggle made by hand (0.1.0 README) left in next to ours — with the menu off, one is fine
+            int drivers = CountDrivers(desc.expressionsMenu);
+            if (drivers > 1)
+                log.AppendLine($"WARN {drivers} controls in the Expression Menu drive '{HoldParameter}' — one is enough (a toggle you made yourself as well?)");
+            if (string.IsNullOrEmpty(state.menu))
+            {
+                log.AppendLine($"Parameter '{HoldParameter}': {(rec.saved ? "saved" : "not saved")}");
+                return;
+            }
+            var path = FindToggle(desc.expressionsMenu, state.menu);
+            rec.menuFound = path != null;
+            rec.menuPath = path ?? "";
+            if (path != null) log.AppendLine($"Menu: '{state.menu}' at {(path.Length == 0 ? "the root" : "'" + path + "'")}, parameter {(rec.saved ? "saved" : "not saved")}");
+            else log.AppendLine("WARN the menu toggle is not in the built Expression Menu" +
+                                (string.IsNullOrEmpty(state.installTo) ? "" : $" — Install to ('{state.installTo}') is not a menu of this avatar"));
+        }
+
+        // controls anywhere in the menu tree whose parameter is Hold (a toggle or a button)
+        static int CountDrivers(VRCExpressionsMenu root)
+        {
+            var seen = new System.Collections.Generic.HashSet<VRCExpressionsMenu>();
+            var stack = new System.Collections.Generic.Stack<VRCExpressionsMenu>();
+            stack.Push(root);
+            int n = 0;
+            while (stack.Count > 0)
+            {
+                var m = stack.Pop();
+                if (m == null || m.controls == null || !seen.Add(m)) continue;
+                foreach (var c in m.controls)
+                {
+                    if (c == null) continue;
+                    if (c.parameter?.name == HoldParameter) n++;
+                    if (c.type == VRCExpressionsMenu.Control.ControlType.SubMenu && c.subMenu != null) stack.Push(c.subMenu);
+                }
+            }
+            return n;
+        }
+
+        // our toggle (the Hold parameter and the menu name) in the menu tree — the path is the submenu names, "" = the root. Shallowest first
+        static string FindToggle(VRCExpressionsMenu root, string label)
+        {
+            var seen = new System.Collections.Generic.HashSet<VRCExpressionsMenu>();
+            var queue = new System.Collections.Generic.Queue<(VRCExpressionsMenu m, string path)>();
+            queue.Enqueue((root, ""));
+            while (queue.Count > 0)
+            {
+                var (m, path) = queue.Dequeue();
+                if (m == null || m.controls == null || !seen.Add(m)) continue;
+                foreach (var c in m.controls)
+                    if (c != null && c.type == VRCExpressionsMenu.Control.ControlType.Toggle && c.parameter?.name == HoldParameter && c.name == label) return path;
+                foreach (var c in m.controls)
+                    if (c != null && c.type == VRCExpressionsMenu.Control.ControlType.SubMenu && c.subMenu != null)
+                        queue.Enqueue((c.subMenu, path.Length == 0 ? c.name : path + "/" + c.name));
+            }
+            return null;
         }
 
         // 로그 글의 WARN 줄 → 빌드 기록, 로그 파일, 콘솔
@@ -112,6 +183,7 @@ namespace Pyrite9.Sleeve
     {
         public readonly StringBuilder log = new StringBuilder();
         public string menu = "";     // 메뉴 토글 이름, 없으면 빈 값
+        public string installTo = "";   // 설치 위치 메뉴 에셋 이름, 빈 값 = 루트(메뉴를 끄면 빈 값)
         public int fxLayers;
         public int syncedBits;       // MA Parameters를 넣었으면 1 — 양쪽 다 꺼도 넣는다
         public readonly System.Collections.Generic.HashSet<string> deleteTargets = new System.Collections.Generic.HashSet<string>();   // MA Shape Changer Delete 모드 대상 렌더러 이름

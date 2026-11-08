@@ -1,6 +1,6 @@
 // Pyrite9 Sleeve Roll — SleeveRoll inspector (UI Toolkit, design 'Assay' — _common/inspector-assay.md, after Orbit Ring's OrbitRingEditor)
 //   about + features (fold) · 01 basics (menu language, the garment and its candidates, sleeves) · 02 menu (toggle, its name,
-//   synced bit) · 03 roll (stop at the hidden arm, bring it back while rolled, roll to) · 04 fit (gap, looseness, folds) ·
+//   install to + the avatar menu as a tree to click, saved, synced bit) · 03 roll (stop at the hidden arm, bring it back while rolled, roll to) · 04 fit (gap, looseness, folds) ·
 //   05 advanced (fold — start, wrist proxy, skin meshes) · 06 last build (SrBuildRecord) · 07 changelog (fold — this version's
 //   line, read from the README). Fold state in EditorPrefs (Pyrite9SR.). Text follows the menu language. Tooltips start with
 //   the English name the README uses.
@@ -13,7 +13,7 @@
 //   Scene view: a ring on each forearm where the cuff ends up, and a faint one where the sleeve starts to move. 03 roll also has
 //   the Preview switch: the rolled sleeves in the Scene view without a build (SleeveRollPreview).
 //   Files: this one (lifecycle, poll, paths) · .Header · .Settings (the setting sections) · .Scene (the avatar, candidates,
-//   scene view) · .Record (last build, changelog) · .Controls (shared pieces)
+//   scene view) · .MenuTree (the avatar menu under Install to) · .Record (last build, changelog) · .Controls (shared pieces)
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;

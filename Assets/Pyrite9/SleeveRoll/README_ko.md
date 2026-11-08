@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-버전 0.1.0 (2026-11-07)
+버전 0.1.1 (2026-11-08)
 
 VRChat 아바타용 소매 걷기 기믹입니다. 프리팹을 아바타에 넣고 소매 달린 옷을 고르기만 하면, 빌드할 때 그 옷의 메시로 "걷힌 소매" 모양을 계산해 넣습니다.
 Expression Menu 토글을 켜면 양 소매가 걷혀 올라가고, 남에게도 그대로 보입니다. 이 패키지에는 셰이프키도 메시 데이터도 들어 있지 않습니다. 모양은 빌드할 때 내가 가진 옷으로 만들어집니다.
@@ -9,7 +9,7 @@ English: `README_en.md` / 日本語: `README_jp.md` / 이용 규약: `LICENSE.tx
 
 ## 기능
 
-- Expression Menu 토글로 양 소매가 0.2초 만에 걷혀 올라간다 — 남에게도 보인다(동기화 1 bit)
+- Expression Menu 토글로 양 소매가 0.2초 만에 걷혀 올라간다 — 남에게도 보인다(동기화 1 bit). 토글은 루트나 원하는 하위 메뉴에 넣을 수 있고, 상태 저장도 고를 수 있다
 - 걷힌 모양은 빌드 때 내가 가진 옷으로 계산한다 — 피부를 재서 천이 팔에 박히지 않게, 원래 겹 두께와 헐렁함 일부를 남기고, 걷힌 자리에 주름을 넣는다
 - 옷이 소매 밑 팔을 shrink 해 두었으면 걷는 동안 shrink를 해제한다 — 걷힌 소맷단 안을 들여다봐도 가는 팔이 안 보인다
 - 손목을 꺾거나 비틀어도 걷힌 소맷단은 제자리(손목 보조 본)
@@ -60,10 +60,25 @@ English: `README_en.md` / 日本語: `README_jp.md` / 이용 규약: `LICENSE.tx
 
 | 메뉴 | 동작 |
 |---|---|
-| `소매 걷기` | 켜면 양 소매가 걷히고, 끄면 내려옵니다(저장 안 함, 남에게도 보임, 기본 꺼짐) |
+| `소매 걷기` | 켜면 양 소매가 걷히고, 끄면 내려옵니다(남에게도 보임, 기본 꺼짐, 기본 설정에선 저장 안 함) |
 
 메뉴 이름은 메뉴 언어에 따라 `Sleeve Roll` / `袖まくり` / `소매 걷기`이고, 인스펙터 **메뉴 이름**으로 바꿀 수 있습니다.
-**메뉴**를 끄면 메뉴를 넣지 않습니다. 그래도 동기화 Bool 파라미터 `Pyrite9/SleeveRoll/Hold`는 만들어지므로, 직접 만든 메뉴나 Contact에서 이 이름으로 켜고 끌 수 있습니다.
+- **설치 위치**: 토글을 넣을 메뉴. 비우면 루트(기본). 바로 밑 **아바타 메뉴**에 이 아바타의 Expression Menu가 트리로 나오니, 넣을 메뉴를 누르면 됩니다(메뉴 이름을 몰라도 됩니다). 오른쪽 숫자는 그 메뉴의 항목 수이고, 8/8인 메뉴에 넣으면 Modular Avatar가 끝의 'More'로 옮깁니다. 메뉴 에셋을 칸에 끌어다 놓아도 됩니다. 아바타 메뉴에 없는 메뉴를 고르면 토글이 안 들어갑니다 — 인스펙터와 **마지막 빌드**에 경고가 나옵니다.
+- **저장**: 켜면 재입장이나 아바타를 바꾼 뒤에도 토글 상태(걷음·내림)를 유지합니다. 기본 꺼짐(매번 내린 상태로 시작).
+- **마지막 빌드**에 토글이 실제로 들어간 자리(예: `루트 / Kemono`)와 저장 여부가 나옵니다.
+
+**메뉴**를 끄면 메뉴를 넣지 않습니다. 그래도 동기화 Bool 파라미터 `Pyrite9/SleeveRoll/Hold`는 만들어지므로, 직접 만든 메뉴나 Contact에서 이 이름으로 켜고 끌 수 있습니다(**저장**은 메뉴를 꺼도 적용됩니다).
+
+### 메뉴를 직접 만들 때
+
+대부분은 **설치 위치**와 **저장**으로 충분합니다. 그래도 토글을 직접 만든다면:
+
+- 파라미터 `Pyrite9/SleeveRoll/Hold`는 **빌드 때 만들어집니다**. 그래서 빌드 전 아바타의 Expression Parameters에는 없습니다. VRChat SDK Expressions Menu의 파라미터 칸(드롭다운)은 Expression Parameters 에셋에 있는 이름만 보여 주므로, 검색해도 안 나옵니다.
+- **VRChat 표준 방법:** 아바타 Expression Parameters에 `Pyrite9/SleeveRoll/Hold`를 직접 추가합니다 — Type **Bool**, Default 0, **Saved**(저장하려면), **Synced** 켬. 그다음 메뉴에 Toggle을 만들어 Parameter로 이 이름을 고르고 **Value를 1**로 합니다. 빌드 때 Sleeve Roll의 선언과 하나로 합쳐지므로 동기화 비트는 늘지 않습니다(1 bit 그대로).
+- **Modular Avatar 방법:** MA Menu Item(Type Toggle)의 파라미터 칸에 `Pyrite9/SleeveRoll/Hold`를 직접 입력하고 Value를 1로 합니다. 저장하려면 같은 오브젝트에 **MA Parameters**를 붙이고 같은 이름을 **Bool**·동기화·**저장(Saved)**으로 선언합니다.
+- **MA Menu Item의 '저장(Saved)'만 켜면 저장되지 않습니다.** 저장은 파라미터 선언(MA Parameters, 또는 Expression Parameters의 Saved)이 정합니다.
+- 선언 중 하나라도 저장이면 저장됩니다. Expression Parameters에 Saved를 켜고 추가해 두었다면 인스펙터 **저장**을 꺼도 저장됩니다.
+- **0.1.0에서 토글을 직접 만든 분:** 0.1.1로 업데이트하고 인스펙터 **메뉴**를 켠 채로 쓴다면, 직접 만든 토글은 지워 주세요(같은 토글이 두 개가 됩니다).
 
 ## 퍼포먼스
 
@@ -81,11 +96,11 @@ English: `README_en.md` / 日本語: `README_jp.md` / 이용 규약: `LICENSE.tx
 ## 설정(Sleeve Roll 컴포넌트)
 
 - **기본**: Menu Language · Garments(옷, 후보 버튼 — 여러 개 가능, 목록에 없는 옷 칸) · Sleeves(양쪽 / 왼쪽 / 오른쪽).
-- **메뉴**: Install Menu(+ Menu Name). 아바타에 Sleeve Roll이 여럿이면 옷을 고른 첫 Sleeve Roll의 값만 씁니다.
+- **메뉴**: Install Menu(+ Menu Name · Install To) · Saved. 아바타에 Sleeve Roll이 여럿이면 옷을 고른 첫 Sleeve Roll의 값만 씁니다.
 - **걷는 위치**(0 = 손목 · 1 = 팔꿈치, 클수록 많이 걷힘): Roll To(소맷단 위치, 기본 0.30. 게이지 노란 구간(0.45~)·주황 구간(0.60~)은 어색해질 수 있으니 **미리 보기**로 확인) · Unhide When Rolled(걷는 동안 shrink 해제, 끄면 shrink를 유지하고 shrink된 팔이 보이기 전에 멈춤. 끈 경우 인게임에서 소매 안을 꼭 확인).
 - **걷힌 소매 모양**(mm, 소매 굵기는 0~1 비율): Margin(피부와 간격) · Looseness(소매 굵기) · Fold Amplitude(주름 깊이) · Fold Length(주름 간격) · Start At(움직임 시작, 0 = 손목 · 1 = 팔꿈치, 이보다 팔꿈치 쪽은 안 움직임. 기본 0.75. 세부 조절용: 모양이 달라지니 **미리 보기**로 시험. 팔꿈치에 너무 가까우면 소매가 줄어든 것처럼 보이고, 옷에 따라 팔꿈치를 굽힐 때 피부가 뚫릴 수 있으니 인게임에서 확인).
 - **고급**: Wrist Proxy(걷힌 소맷단 고정) · Body Meshes(피부를 잴 메시, 비우면 자동).
-- **마지막 빌드**: 그 아바타의 마지막 빌드 결과(옷마다 — 안쪽부터, 바깥 옷은 어느 옷 위인지 — 쪽마다 걷힌 자리, shrink 경계에서 멈췄는지, shrink를 해제한 정점 수)와 경고, 빌드 로그·README 버튼.
+- **마지막 빌드**: 그 아바타의 마지막 빌드 결과(옷마다 — 안쪽부터, 바깥 옷은 어느 옷 위인지 — 쪽마다 걷힌 자리, shrink 경계에서 멈췄는지, shrink를 해제한 정점 수), 메뉴 자리와 저장 여부, 경고, 빌드 로그·README 버튼.
 - **버전**: 하루 한 번 GitHub에 최신 버전을 묻고, 새 버전이 있으면 알려 줍니다(아래 "참고").
 - **변경 기록**: 이번 버전의 변경 사항(이 README에서 읽어 옴).
 
@@ -103,6 +118,8 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 | `the body mesh has forearm skin only from t=… (cut away under the outfit)` | 몸 메시가 옷 밑 팔뚝을 잘라 낸 모델입니다. 팔뚝이 있는 몸 메시로 바꾸면 걷힙니다. |
 | `no skin (body) mesh found on the forearm` | 피부를 잴 몸을 못 찾았습니다. **고급 > Body Meshes**에 몸 메시를 넣으세요. |
 | `an MA Shape Changer in Delete mode removes vertices at build` | 이 몸 메시는 빌드 때 정점을 지웁니다. 걷힌 자리에 구멍이 보이면 그 Shape Changer를 Set 모드로 바꾸세요. |
+| `the menu toggle is not in the built Expression Menu — Install to (…) is not a menu of this avatar` | **설치 위치** 메뉴가 이 아바타의 메뉴가 아닙니다. 비우거나(루트) 아바타 Expression Menu의 하위 메뉴를 고르세요. |
+| `N controls in the Expression Menu drive 'Pyrite9/SleeveRoll/Hold' — one is enough` | 메뉴에 같은 소매 스위치가 두 개 이상 있습니다(0.1.0 때 직접 만든 토글이 남아 있는 등). 직접 만든 토글을 지우거나, **메뉴**를 끄고 직접 만든 것만 남기세요. |
 | `this sleeve's PhysBone stops moving (…)` | 이 소매의 PhysBone을 안전하게 유지할 수 없어서(이유는 괄호 안) 소매가 물리 없이 손을 따라갑니다. 걷히기는 합니다. 물리를 살리려면 괄호 안 원인을 없애세요. |
 | `a PhysBone on the forearm (…) holds this sleeve and cannot be held still while rolled (…)` | 이 쪽 소매는 걷히지 않습니다. 물리를 멈춰 둘 수 없어서입니다. 두 번째 괄호 안 원인을 없애세요. |
 | `a PhysBone under the upper arm (…) holds this sleeve down to t=… — it cannot be rolled` | 위팔의 PhysBone이 소맷단까지 잡고 있어 걷을 수 없는 옷입니다. |
@@ -122,6 +139,7 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 
 ## 변경 기록
 
+- **0.1.1** (2026-11-08): 인스펙터 **메뉴**에 **설치 위치**(토글을 넣을 하위 메뉴, 비우면 루트. 아바타 메뉴를 트리로 보여 주고 눌러서 고릅니다)와 **저장**(재입장·아바타 변경 뒤에도 토글 상태 유지, 기본 꺼짐)을 넣었습니다. **마지막 빌드**에 토글 자리와 저장 여부가 나오고, 설치 위치가 아바타 메뉴에 없으면 인스펙터와 빌드에서 경고합니다. 같은 파라미터 토글이 메뉴에 두 개 이상이어도 빌드에서 경고합니다. README에 '메뉴를 직접 만들 때'를 넣었습니다. 기본 설정 그대로면 빌드되는 아바타는 0.1.0과 같습니다.
 - **0.1.0** (2026-11-07): 첫 공개.
 
 ## 참고

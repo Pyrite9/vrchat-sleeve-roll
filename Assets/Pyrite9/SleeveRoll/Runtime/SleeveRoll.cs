@@ -40,6 +40,10 @@ namespace Pyrite9.Sleeve
         public bool installMenu = true;
         [Tooltip("The toggle's name — empty: Sleeve Roll / 袖まくり / 소매 걷기 by the menu language")]
         public string menuName = "";
+        [Tooltip("The menu the toggle goes in — empty: the Expression Menu root. It must be a menu in this avatar's Expression Menu (or one a Modular Avatar installer adds), or the toggle is left out")]
+        public VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu installTo;
+        [Tooltip("Keep the toggle's state when you rejoin or change avatars — the synced Bool 'Pyrite9/SleeveRoll/Hold' is saved. Off: rolled down each time")]
+        public bool saved = false;
 
         [Tooltip("Meshes the skin is measured on. Empty: every other skinned mesh with forearm weights")]
         public SkinnedMeshRenderer[] bodyMeshes = new SkinnedMeshRenderer[0];

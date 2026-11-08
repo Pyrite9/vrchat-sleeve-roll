@@ -46,6 +46,9 @@ namespace Pyrite9.Sleeve
             public bool built;           // humanoid — the plugin ran
             public List<Garment> garments = new List<Garment>();
             public string menu;          // the toggle's name, empty = no menu
+            public bool menuFound;       // the toggle is in the built Expression Menu (0.1.1 —)
+            public string menuPath;      // where: submenu names joined by '/', empty = the root
+            public bool saved;           // Pyrite9/SleeveRoll/Hold is saved in the built Expression Parameters (0.1.1 —)
             public int syncedBits;
             public int fxLayers;
             public List<string> warnings = new List<string>();   // English, as in the build log

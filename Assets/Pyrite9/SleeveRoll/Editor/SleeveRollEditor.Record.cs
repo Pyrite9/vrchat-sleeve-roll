@@ -62,7 +62,16 @@ namespace Pyrite9.Sleeve
             grid.Add(Fact(T(lang, "Menu", "メニュー", "메뉴"), string.IsNullOrEmpty(rec.menu)
                 ? T(lang, "off — drive Pyrite9/SleeveRoll/Hold yourself", "なし — Pyrite9/SleeveRoll/Hold を自分で", "없음 — Pyrite9/SleeveRoll/Hold 직접")
                 : rec.menu, null));
+            // read back from the built menu and parameters (0.1.1 —; older records don't have them)
+            bool menuInfo = rec.version != "0.1.0";
+            if (menuInfo && !string.IsNullOrEmpty(rec.menu))
+                grid.Add(Child(Fact(T(lang, "Location", "場所", "위치"), !rec.menuFound
+                        ? T(lang, "not in the menu — see the warning", "メニューにありません — 警告を見てください", "메뉴에 없음 — 경고 참고")
+                        : T(lang, "Root", "ルート", "루트") + (string.IsNullOrEmpty(rec.menuPath) ? "" : " / " + rec.menuPath.Replace("/", " / ")),
+                    rec.menuFound ? null : "sr-fact__value--warn")));
             grid.Add(Fact(T(lang, "Synced", "同期", "동기화"), rec.syncedBits + " bit", null));
+            if (menuInfo && rec.syncedBits > 0)
+                grid.Add(Child(Fact(T(lang, "Saved", "保存", "저장"), rec.saved ? T(lang, "yes", "する", "함") : T(lang, "no", "しない", "안 함"), null)));
             grid.Add(Fact(T(lang, "FX layers", "FX レイヤー", "FX 레이어"), rec.fxLayers.ToString(), null));
             Live(() => GarmentHash(Cfg), () =>
             {
@@ -148,6 +157,14 @@ namespace Pyrite9.Sleeve
                 "If a hole shows where the sleeve rolls, set that Shape Changer to Set mode.",
                 "まくった所に穴が見えたら、その Shape Changer を Set モードにしてください。",
                 "걷힌 자리에 구멍이 보이면 그 Shape Changer를 Set 모드로 바꿔 주세요."),
+            (new[] { "menu toggle is not in the built Expression Menu" },
+                "Install to is not a menu of this avatar — empty it (the root) or pick a submenu of the avatar's Expression Menu.",
+                "インストール先がこのアバターのメニューではありません — 空にする（ルート）か、アバターの Expression Menu のサブメニューを選んでください。",
+                "설치 위치가 이 아바타의 메뉴가 아닙니다 — 비우거나(루트) 아바타 Expression Menu의 하위 메뉴를 골라 주세요."),
+            (new[] { "controls in the Expression Menu drive" },
+                "Two switches for the same sleeves — delete the toggle you made yourself, or turn Menu off and keep only yours.",
+                "同じ袖のスイッチが 2 つあります — 自分で作ったトグルを消すか、メニュー をオフにして自分のものだけ残してください。",
+                "같은 소매 스위치가 두 개입니다 — 직접 만든 토글을 지우거나, 메뉴를 끄고 직접 만든 것만 남기세요."),
             (new[] { "already has a shape key with this name" },
                 "The garment already has SleeveUp_L/R (another tool or a baked copy?) — use the original garment mesh.",
                 "衣装にすでに SleeveUp_L/R があります（別のツールか焼き込み済みのコピー？）— 元の衣装のメッシュを使ってください。",

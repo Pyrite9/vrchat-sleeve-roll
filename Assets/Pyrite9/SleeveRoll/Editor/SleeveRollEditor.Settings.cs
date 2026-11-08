@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using VRC.SDK3.Avatars.ScriptableObjects;
 
 namespace Pyrite9.Sleeve
 {
@@ -247,9 +248,9 @@ namespace Pyrite9.Sleeve
             var menu = Box("sr-group");
             grid.Add(menu);
             menu.Add(Row(T(lang, "Menu", "メニュー", "메뉴"),
-                "Install Menu — " + T(lang, "Adds a toggle to the Expression Menu root: on = sleeves rolled (not saved, others see it). Off: no menu — the synced Bool Pyrite9/SleeveRoll/Hold is still made, for your own menu or contact.",
-                    "Expression Menu のルートにトグルを追加：オン = 袖をまくる（保存しない、他の人にも見える）。オフ：メニューなし — 同期 Bool Pyrite9/SleeveRoll/Hold は作るので、自分のメニューやコンタクトから動かせます。",
-                    "Expression Menu 루트에 토글 추가: 켬 = 소매 걷음(저장 안 함, 남에게도 보임). 끄면 메뉴 없음 — 동기화 Bool Pyrite9/SleeveRoll/Hold는 만들어 두니 직접 만든 메뉴나 Contact로 몰 수 있습니다."),
+                "Install Menu — " + T(lang, "Adds a toggle to the Expression Menu (the root, or Install to): on = sleeves rolled, others see it. Off: no menu — the synced Bool Pyrite9/SleeveRoll/Hold is still made, for your own menu or contact.",
+                    "Expression Menu（ルート、またはインストール先）にトグルを追加：オン = 袖をまくる、他の人にも見える。オフ：メニューなし — 同期 Bool Pyrite9/SleeveRoll/Hold は作るので、自分のメニューやコンタクトから動かせます。",
+                    "Expression Menu(루트 또는 설치 위치)에 토글 추가: 켬 = 소매 걷음, 남에게도 보임. 끄면 메뉴 없음 — 동기화 Bool Pyrite9/SleeveRoll/Hold는 만들어 두니 직접 만든 메뉴나 Contact로 몰 수 있습니다."),
                 Check("installMenu", T(lang, "Toggle in the Expression Menu", "Expression Menu にトグル", "Expression Menu에 토글"))));
             var nameRow = Child(Row(T(lang, "Menu name", "メニュー名", "메뉴 이름"),
                 "Menu Name — " + T(lang, "The toggle's name. Empty: Sleeve Roll / 袖まくり / 소매 걷기, by the menu language.",
@@ -257,26 +258,65 @@ namespace Pyrite9.Sleeve
                     "토글 이름. 비우면 메뉴 언어에 따라 Sleeve Roll / 袖まくり / 소매 걷기."),
                 Text("menuName")));
             menu.Add(nameRow);
+            var whereField = new ObjectField { objectType = typeof(VRCExpressionsMenu), allowSceneObjects = false, bindingPath = "installTo" };
+            whereField.AddToClassList("sr-field");
+            var whereRow = Child(Row(T(lang, "Install to", "インストール先", "설치 위치"),
+                "Install To — " + T(lang, "The menu the toggle goes in. Empty: the Expression Menu root. Pick a menu in this avatar's Expression Menu (one of its submenus, or one a Modular Avatar installer adds) — with any other menu the toggle is left out.",
+                    "トグルを入れるメニュー。空なら Expression Menu のルート。このアバターの Expression Menu にあるメニュー（そのサブメニュー、または Modular Avatar のインストーラーが追加するもの）を選んでください — それ以外のメニューではトグルが入りません。",
+                    "토글을 넣을 메뉴. 비우면 Expression Menu 루트. 이 아바타의 Expression Menu에 있는 메뉴(그 하위 메뉴, 또는 Modular Avatar 인스톨러가 넣는 메뉴)를 고르세요 — 다른 메뉴면 토글이 안 들어갑니다."),
+                whereField));
+            menu.Add(whereRow);
+            var treeRow = Child(Stack(Row(T(lang, "Avatar menu", "アバターのメニュー", "아바타 메뉴"),
+                T(lang, "This avatar's Expression Menu. Click a menu to put the toggle there (same as Install to). n/8: the menu's items before the build — at 8 Modular Avatar moves the overflow into a 'More' submenu.",
+                    "このアバターの Expression Menu。メニューをクリックするとトグルをそこに入れます（インストール先と同じ）。n/8：ビルド前のそのメニューの項目数 — 8 になると Modular Avatar があふれた分を「More」サブメニューに移します。",
+                    "이 아바타의 Expression Menu. 메뉴를 누르면 토글을 거기 넣습니다(설치 위치와 같음). n/8: 빌드 전 그 메뉴의 항목 수 — 8이 되면 Modular Avatar가 넘친 항목을 'More' 하위 메뉴로 옮깁니다."),
+                MenuTreeBox())));
+            menu.Add(treeRow);
+            var save = Box("sr-group");
+            grid.Add(save);
+            save.Add(Row(T(lang, "Saved", "保存する", "저장"),
+                "Saved — " + T(lang, "Keeps the toggle's state when you rejoin or change avatars (the parameter Pyrite9/SleeveRoll/Hold is saved). Off: rolled down each time. Works with the menu off too.",
+                    "再入室やアバター変更のあともトグルの状態を保ちます（パラメーター Pyrite9/SleeveRoll/Hold を保存）。オフ：毎回下ろした状態から。メニューがオフでも効きます。",
+                    "재입장이나 아바타 변경 뒤에도 토글 상태를 유지합니다(파라미터 Pyrite9/SleeveRoll/Hold 저장). 끄면 매번 내린 상태로 시작. 메뉴를 꺼도 적용됩니다."),
+                Check("saved", T(lang, "Keep it after rejoining", "再入室後も保持", "재입장 뒤에도 유지"))));
             // the empty name field doesn't say what the menu will show — the note does (only then; a typed name speaks for itself)
             var nameNote = Label("", "sr-note");
             sec.Add(nameNote);
+            var whereNote = Label("", "sr-note");
+            sec.Add(whereNote);
             sec.Add(Label(T(lang, "Synced: 1 bit (Pyrite9/SleeveRoll/Hold) for every Sleeve Roll in the avatar.",
                 "同期：1 bit（Pyrite9/SleeveRoll/Hold）— アバターの Sleeve Roll 全部で共通。",
                 "동기화: 1 bit(Pyrite9/SleeveRoll/Hold) — 아바타의 Sleeve Roll 전부 공통."), "sr-note"));
             if (!first)
             {
-                sec.Add(Label(T(lang, $"The menu comes from the first Sleeve Roll in this avatar with a garment ({owner.name}) — these two settings are not used.",
-                    $"メニューは衣装を選んだ最初の Sleeve Roll（{owner.name}）のもの — ここの 2 つの設定は使われません。",
-                    $"메뉴는 옷을 고른 첫 Sleeve Roll({owner.name}) 것을 씁니다 — 여기 두 설정은 쓰지 않습니다."), "sr-note sr-note--gold"));
+                sec.Add(Label(T(lang, $"The menu comes from the first Sleeve Roll in this avatar with a garment ({owner.name}) — the settings here are not used.",
+                    $"メニューは衣装を選んだ最初の Sleeve Roll（{owner.name}）のもの — ここの設定は使われません。",
+                    $"메뉴는 옷을 고른 첫 Sleeve Roll({owner.name}) 것을 씁니다 — 여기 설정은 쓰지 않습니다."), "sr-note sr-note--gold"));
                 menu.SetEnabled(false);
+                save.SetEnabled(false);
             }
             Live(() => unchecked((Cfg.installMenu ? 1 : 2) + 31 * (Cfg.menuName ?? "").GetHashCode()), () =>
             {
                 var c = Cfg;
                 nameRow.SetEnabled(c.installMenu);
+                whereRow.SetEnabled(c.installMenu);
+                treeRow.SetEnabled(c.installMenu);
                 bool show = c.installMenu && first && string.IsNullOrWhiteSpace(c.menuName);
                 if (show) nameNote.text = T(lang, $"Empty — the menu shows: {c.MenuLabel}", $"空欄のときのメニュー名：{c.MenuLabel}", $"비워 두면 메뉴 이름: {c.MenuLabel}");
                 Display(nameNote, show);
+            });
+            // a menu outside the avatar's menu tree: MA leaves the toggle out without an error — say so here, before the build
+            // keyed on the cached menu tree, so an edited menu asset updates it too
+            Live(() => { MenuTreeNow(); return unchecked((Cfg.installMenu ? 1 : 2) + 31 * (Cfg.installTo != null ? Cfg.installTo.GetInstanceID() : 0) + 961 * menuTreeKey); }, () =>
+            {
+                var c = Cfg;
+                bool show = c.installMenu && first && c.installTo != null && !MenuReachable(c.installTo);
+                if (show)
+                    whereNote.text = T(lang, $"'{c.installTo.name}' is not in this avatar's Expression Menu — the toggle would be left out. Pick a menu from the avatar's menu, or check Last build after Play (a menu another tool adds at build time can still work).",
+                        $"「{c.installTo.name}」はこのアバターの Expression Menu にありません — トグルが入りません。アバターのメニューにあるものを選ぶか、Play のあと 最後のビルド で確認してください（ビルド時に別のツールが追加するメニューなら動くことがあります）。",
+                        $"'{c.installTo.name}'은(는) 이 아바타의 Expression Menu에 없습니다 — 토글이 안 들어갑니다. 아바타 메뉴에 있는 것을 고르거나, Play 뒤 마지막 빌드에서 확인하세요(빌드 때 다른 도구가 넣는 메뉴면 될 수도 있습니다).");
+                whereNote.EnableInClassList("sr-note--gold", show);
+                Display(whereNote, show);
             });
             return sec;
         }

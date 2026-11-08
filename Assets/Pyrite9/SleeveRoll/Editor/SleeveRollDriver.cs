@@ -69,9 +69,12 @@ namespace Pyrite9.Sleeve
             AddDriver(ctx.AvatarRootTransform, controller, main);
             state.syncedBits = 1;
             state.menu = main.installMenu ? main.MenuLabel : "";
+            state.installTo = main.installMenu && main.installTo != null ? main.installTo.name : "";
             state.fxLayers = controller.layers.Length;
             state.log.AppendLine($"FX: {controller.layers.Length} layers, menu " +
-                                 (main.installMenu ? $"'{main.MenuLabel}'" : $"off — drive '{SleeveRollPlugin.HoldParameter}' yourself") + " (1 synced bit)");
+                                 (main.installMenu ? $"'{main.MenuLabel}' in " + (main.installTo != null ? $"'{main.installTo.name}'" : "the root")
+                                     : $"off — drive '{SleeveRollPlugin.HoldParameter}' yourself") +
+                                 $" (1 synced bit, {(main.saved ? "saved" : "not saved")})");
         }
 
         /// <summary>Down·Up 클립 한 쌍 — 곡선 하나를 두 클립에 같이 넣는다(경로·속성 중복은 무시)</summary>
@@ -170,20 +173,21 @@ namespace Pyrite9.Sleeve
             merge.pathMode = MergeAnimatorPathMode.Absolute;
             merge.matchAvatarWriteDefaults = true;
             merge.deleteAttachedAnimator = false;
-            // 메뉴를 끄더라도 파라미터는 동기화로 남긴다 — 다른 메뉴·Contact가 이 이름으로 몰 수 있게
+            // 메뉴를 끄더라도 파라미터는 동기화로 남긴다 — 다른 메뉴·Contact가 이 이름으로 몰 수 있게. 저장 여부는 메뉴와 상관없이 파라미터에(D17)
             var parameters = driver.AddComponent<ModularAvatarParameters>();
             parameters.parameters.Add(new ParameterConfig
             {
                 nameOrPrefix = SleeveRollPlugin.HoldParameter,
                 syncType = ParameterSyncType.Bool,
-                saved = false,
+                saved = main.saved,   // the menu item's isSaved alone is not enough — MA merges declarations before it reads the item (RenameParametersHook)
                 defaultValue = 0f,
                 hasExplicitDefaultValue = true,
             });
             if (!main.installMenu) return;
             var menu = new GameObject(main.MenuLabel);
             menu.transform.SetParent(driver.transform, false);
-            menu.AddComponent<ModularAvatarMenuInstaller>();
+            // empty = the root. A menu outside the avatar's menu tree leaves the toggle out (MA skips it quietly) — Process checks the built menu
+            menu.AddComponent<ModularAvatarMenuInstaller>().installTargetMenu = main.installTo;
             var item = menu.AddComponent<ModularAvatarMenuItem>();
             item.Control = new VRCExpressionsMenu.Control
             {
@@ -194,7 +198,7 @@ namespace Pyrite9.Sleeve
                 icon = AssetDatabase.LoadAssetAtPath<Texture2D>(AssetDatabase.GUIDToAssetPath(SleeveRollConst.MenuIconGuid)),   // missing only leaves the slot blank
             };
             item.isSynced = true;
-            item.isSaved = false;
+            item.isSaved = main.saved;
             item.isDefault = false;
             item.automaticValue = false;
         }
