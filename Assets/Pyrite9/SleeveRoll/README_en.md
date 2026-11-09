@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-Version 0.1.1 (2026-11-08)
+Version 0.1.2 (2026-11-09)
 
 A sleeve-rolling gimmick for VRChat avatars. Drop the prefab into an avatar and pick the sleeved garment — when you build, the rolled-up sleeve is worked out from that garment's own mesh.
 Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package — the shape is made at build time from the garment you own.
@@ -17,7 +17,7 @@ Turn the Expression Menu toggle on and both sleeves roll up, and others see it t
 - Layered outfits (a shirt under a jacket): pick several garments — they are rolled from the inside out, and the outer sleeve sits over the inner one's rolled cuff
 - Your scene and the garment's mesh file are not changed — only the build copy is
 - In the inspector, pick the garment from buttons, set where the cuff sits, the gap and the folds with gauges, and see where the cuff ends up as a gold ring in the Scene view
-- See the rolled sleeves in the Scene view without building (**Preview** in **How far it rolls**) — same calculation as the build
+- See the rolled sleeves in the Scene view without building (**Preview** in **How far it rolls**) — same calculation as the build. For an outfit put on at build time (Modular Avatar and the like), whether a sleeve with a PhysBone rolls and keeps its physics is decided by the build, so check **Last build** and the build warnings for that
 
 ## Requirements
 
@@ -123,6 +123,7 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 | On a layered outfit the inner cloth shows through the outer one | Check that both garments are picked (an unpicked one doesn't roll and stays as it is). Raising **Gap to skin** for the outer one a little also helps. |
 | `this sleeve's PhysBone stops moving (…)` | This sleeve's PhysBone can't be kept safely (reason in the brackets), so the sleeve follows the hand with no physics. It still rolls. To keep the physics, remove the cause in the brackets. |
 | `a PhysBone on the forearm (…) holds this sleeve and cannot be held still while rolled (…)` | This sleeve does not roll, because its physics can't be held still. Remove the cause in the second brackets. |
+| `another PhysBone (…) also moves … — the two fight over it` | Two of the outfit's PhysBones move the same bone (the same PhysBone added twice, or one covering the other). It is the outfit's own setting, so it sways the same without Sleeve Roll, and the sleeve still rolls as it is. To fix it, remove one, or put the inner PhysBone's first bone in the outer PhysBone's Ignore Transforms. |
 | `a PhysBone under the upper arm (…) holds this sleeve down to t=… — it cannot be rolled` | A PhysBone on the upper arm holds the sleeve down to the cuff. This outfit can't be rolled. |
 | The sleeve jumps once when it starts to roll | Normal. The rolled shape is worked out from the PhysBone's rest pose, so a drooping sleeve goes back to it. It sways again when lowered. |
 | The rolled cuff bends with the wrist | Check that **Advanced > Wrist Proxy** is on. |
@@ -137,6 +138,7 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 
 ## Changelog
 
+- **0.1.2** (2026-11-09): Fixed one sleeve not rolling on outfits that put the left and right sleeve PhysBones on one object (**Last build** said `a second PhysBone on one object`). On outfits where a sleeve PhysBone starts inside another, two PhysBones share a starting bone, or a sleeve PhysBone leaves some bones out with Ignore Transforms, the whole rolled sleeve now stays still, and the lowered sleeve sways as it does without Sleeve Roll (before, part of it kept swaying while rolled, or the cuff followed the wrist). A new build warning appears when two PhysBones move the same bone. The Preview line now says that for an outfit put on at build time the PhysBone check is decided by the build. Other outfits build the same as 0.1.1.
 - **0.1.1** (2026-11-08): The inspector's **Menu** section gets **Install to** (the submenu the toggle goes in, empty = the root; the avatar's menu is shown as a tree to click) and **Saved** (keep the toggle's state after rejoining or changing avatars, off by default). **Last build** shows where the toggle is and whether it is saved, and the inspector and the build warn when Install to is not in the avatar's menu. The build also warns when the menu has two or more toggles for the same parameter. Added 'Making the toggle yourself' to the README. With the default settings the built avatar is the same as 0.1.0.
 - **0.1.0** (2026-11-07): First release.
 
