@@ -1381,7 +1381,7 @@ namespace Pyrite9.Sleeve
                 }
                 var o = solve_moved(d, off, info);
                 TotalNormMs += sw.Elapsed.TotalMilliseconds;
-                rep.note = $"normalized {info} {sw.Elapsed.TotalMilliseconds:F0} ms";
+                rep.note = (rep.note != null ? rep.note + "\n    " : "") + $"normalized {info} {sw.Elapsed.TotalMilliseconds:F0} ms";
                 if (o == null) { rep.message = "the sleeve is already shorter than Roll To after normalizing"; return true; }
                 delta = new Vector3[nv];
                 rep.roll = new float[nv];

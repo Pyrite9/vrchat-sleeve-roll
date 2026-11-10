@@ -77,7 +77,7 @@ namespace Pyrite9.Sleeve
             var eps = new float[2];
             for (int s = 0; s < 2; s++)
             {
-                if (GetForearm(animator, s == 0, en.bones, en.bindposes, out var f) != null) continue;
+                if (GetForearm(animator, s == 0, en.bones, en.bindposes, out var f, en.boneMap) != null) continue;
                 var wArm = en.Weights(f.lower, null, true);
                 bool anyArm = false;   // 팔뚝 웨이트가 없는 메시(머리·신발 등)는 팔뚝 정점이 없다 → 셰이프를 안 읽고 null
                 for (int v = 0; v < n && !anyArm; v++) anyArm = wArm[v] >= 0.5f;

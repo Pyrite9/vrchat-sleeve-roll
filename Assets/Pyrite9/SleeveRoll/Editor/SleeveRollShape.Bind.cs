@@ -97,7 +97,7 @@ namespace Pyrite9.Sleeve
         {
             t = float.MinValue;
             var ce = cache.Get(cloth);
-            if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f) != null) return false;
+            if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap) != null) return false;
             var w = Weights(ce.rawBones, ce.mesh, new HashSet<Transform>(pick).Contains);   // pick은 실제 체인 본
             var verts = ce.Vertices;
             for (int i = 0; i < verts.Length; i++)
@@ -113,9 +113,10 @@ namespace Pyrite9.Sleeve
         internal static bool BindLocalRotation(Cache.Entry ce, Transform lower, Transform hand, out Quaternion rot)
         {
             rot = Quaternion.identity;
-            int li = Array.IndexOf(ce.bones, lower), hi = Array.IndexOf(ce.bones, hand);
-            if (li < 0 || hi < 0) return false;
-            rot = (ce.bindposes[li] * ce.bindposes[hi].inverse).rotation;
+            int hi = Array.IndexOf(ce.bones, hand);
+            // 아래팔 본이 메시에 없고 자손(트위스트 등)에만 묶인 옷도 아래팔 바인드 포즈를 유도해 쓴다(10-75)
+            if (hi < 0 || hi >= ce.bindposes.Length || !LowerBind(ce.bones, ce.bindposes, lower, hand, out var bpLower, ce.boneMap)) return false;
+            rot = (bpLower * ce.bindposes[hi].inverse).rotation;
             return true;
         }
     }

@@ -119,9 +119,13 @@ namespace Pyrite9.Sleeve
         static Vector3[] Side(SkinnedMeshRenderer cloth, Cache.Entry ce, IList<SkinnedMeshRenderer> skins, IDictionary<SkinnedMeshRenderer, Vector3[]> rolled,
             Animator animator, Cache cache, Settings s, bool left, ref SideReport rep)
         {
-            var err = GetForearm(animator, left, ce.bones, ce.bindposes, out var f);
-            if (err != null) { rep.message = err; return null; }
+            var err = GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap);
+            if (err != null) { rep.message = err; rep.note = Diagnose(animator, left, cache, ce); return null; }
             rep.forearmMeters = f.L * f.mPerUnit;
+            // 아래팔 본이 메시에 없어 자손 본에서 틀을 유도한 옷 — 로그에 남긴다(정규화 줄이 생기면 그 앞에 붙는다)
+            // 소매 일부가 다른 본(위팔 밑 소매 본 등)에 묶여 일부만 걷혀도 성공으로 나올 수 있다 — 진단을 늘 같이 남긴다
+            if (Array.IndexOf(ce.bones, f.lower) < 0)
+                rep.note = "forearm bone not in the mesh — frame derived from its child bone\n    " + Diagnose(animator, left, cache, ce);
 
             var R = SampleSkin(cloth, skins, rolled, cache, f, out var occupied, ref rep);
             if (rep.skinVertices == 0) { rep.message = "no skin (body) mesh found on the forearm"; return null; }
@@ -135,7 +139,7 @@ namespace Pyrite9.Sleeve
             SmoothSkin(R);
 
             var sleeve = ReadSleeve(ce, f, s, ref rep);
-            if (sleeve == null) { rep.message = "no sleeve vertices on the forearm"; return null; }
+            if (sleeve == null) { rep.message = "no sleeve vertices on the forearm"; rep.note = Diagnose(animator, left, cache, ce); return null; }
             if (sleeve.end <= s.tTarget + 0.02f)
             {
                 rep.message = rep.skinFrom > 0.3f
@@ -434,9 +438,10 @@ namespace Pyrite9.Sleeve
             var rs = new List<float>();
             foreach (bool left in SrSide.Both)
             {
-                if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f) != null) continue;
+                if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap) != null) continue;
                 var verts = ce.Vertices;
-                var w = ce.Weights(f.lower, null, false);
+                // 아래팔 본 없이 자손(트위스트 등)에만 묶인 옷은 자손째로(10-75) — 아래팔이 있으면 전과 같다
+                var w = ce.Weights(f.lower, null, Array.IndexOf(ce.bones, f.lower) < 0);
                 for (int i = 0; i < verts.Length; i++)
                 {
                     if (w[i] < 0.5f) continue;

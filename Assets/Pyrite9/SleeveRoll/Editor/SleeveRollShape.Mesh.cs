@@ -28,15 +28,15 @@ namespace Pyrite9.Sleeve
         }
 
         // 쪽 하나의 팔뚝 좌표계. 못 만들면 이유(영어, 보고용), 되면 null
-        static string GetForearm(Animator animator, bool left, Transform[] bones, Matrix4x4[] bp, out Forearm f)
+        static string GetForearm(Animator animator, bool left, Transform[] bones, Matrix4x4[] bp, out Forearm f, Dictionary<Transform, Transform> map = null)
         {
             f = default;
             f.lower = animator.GetBoneTransform(SrSide.Lower(left));
             f.hand = animator.GetBoneTransform(SrSide.Hand(left));
             if (f.lower == null || f.hand == null) return "no humanoid forearm or hand bone";
-            int la = Array.IndexOf(bones, f.lower), hi = Array.IndexOf(bones, f.hand);
-            if (la < 0) return "the garment is not weighted to the forearm bone";
-            f.laToMesh = bp[la].inverse;
+            int hi = Array.IndexOf(bones, f.hand);
+            if (!LowerBind(bones, bp, f.lower, f.hand, out var bpLower, map)) return "the garment is not weighted to the forearm bone";
+            f.laToMesh = bpLower.inverse;
             f.e = f.laToMesh.MultiplyPoint3x4(Vector3.zero);
             // 손 본이 메시에 없으면 바인드 포즈를 아래팔 기준 상대 위치로 구한다
             var wr = hi >= 0 ? bp[hi].inverse.MultiplyPoint3x4(Vector3.zero)
@@ -234,6 +234,96 @@ namespace Pyrite9.Sleeve
         static int TBin(float t) => Mathf.Clamp((int)((t - TMin) / (TMax - TMin) * NT), 0, NT - 1);
         static int ABin(float a) => ((int)((a + Mathf.PI) / (2f * Mathf.PI) * NA) % NA + NA) % NA;
         static float Smooth(float x) { x = Mathf.Clamp01(x); return x * x * (3f - 2f * x); }
+
+        /// <summary>
+        /// 메시 공간에서 본 아래팔 바인드 포즈. 본 목록에 아래팔이 있으면 그것, 없으면 아래팔의 자손 본(손 밑은 제외 — 트위스트·변환 도구가 남긴
+        /// 원래 본 등, 문의 10-75)에서 유도한다(가상 재타깃과 같은 식, 지금 자세 = 바인드 자세 가정은 MA와 같음). 손 밑만 있으면 소매가 다른 데
+        /// (위팔 밑 소매 본 등) 묶여 있다는 뜻이라 유도하지 않는다 — 소매 일부만 걷혀 찢어진 결과를 성공으로 내지 않게. 못 구하면 false
+        /// </summary>
+        internal static bool LowerBind(Transform[] bones, Matrix4x4[] bp, Transform lower, Transform hand, out Matrix4x4 bpLower, Dictionary<Transform, Transform> map = null)
+        {
+            bpLower = default;
+            if (lower == null) return false;
+            int la = Array.IndexOf(bones, lower);
+            if (la >= 0 && la < bp.Length) { bpLower = bp[la]; return true; }
+            for (int i = 0; i < bones.Length && i < bp.Length; i++)
+            {
+                var b = bones[i];
+                if (b == null || b == lower || !IsUnder(b, lower, map)) continue;
+                if (hand != null && (b == hand || IsUnder(b, hand, map))) continue;
+                bpLower = lower.worldToLocalMatrix * b.localToWorldMatrix * bp[i];
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>b가 x의 자손인가 — 미리 보기(MA 앞)에선 의상에만 있는 본이 아직 의상 본 밑이라, 처음 만나는 짝 있는 조상을 아바타 본으로 본다</summary>
+        static bool IsUnder(Transform b, Transform x, Dictionary<Transform, Transform> map)
+        {
+            for (var p = b.parent; p != null; p = p.parent)
+            {
+                if (p == x) return true;
+                if (map != null && map.TryGetValue(p, out var q) && q != null) return q == x || q.IsChildOf(x);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 실패 진단(빌드 로그용, 영어) — 그쪽 위팔 밑에 웨이트가 실린 메시 본 전부: 실제 본 경로, 계산에서 본 본, Merge 짝·MA 앞에 있던 본인지,
+        /// 웨이트 합·정점 수. 위팔 밑에 하나도 없으면 웨이트가 큰 본 8개. 문의 10-75 — 사용자 옷 구조를 로그 한 번으로 알기 위해
+        /// </summary>
+        internal static string Diagnose(Animator animator, bool left, Cache cache, Cache.Entry ce)
+        {
+            var sb = new System.Text.StringBuilder();
+            var root = animator.transform;
+            var upper = animator.GetBoneTransform(left ? HumanBodyBones.LeftUpperArm : HumanBodyBones.RightUpperArm);
+            var lower = animator.GetBoneTransform(SrSide.Lower(left));
+            var hand = animator.GetBoneTransform(SrSide.Hand(left));
+            string P(Transform t) => t == null ? "null" : t == root ? "<root>" : Path(root, t);
+            sb.Append($"diag: humanoid upper={P(upper)} lower={P(lower)} hand={P(hand)}; mesh bones={ce.rawBones.Length}, " +
+                      $"lower in list: raw={Array.IndexOf(ce.rawBones, lower) >= 0} mapped={Array.IndexOf(ce.bones, lower) >= 0}; " +
+                      $"merge pairs={(cache.boneMap != null ? cache.boneMap.Count : -1)}, known={(cache.known != null ? cache.known.Count : -1)}");
+            var sum = new float[ce.rawBones.Length];
+            var cnt = new int[ce.rawBones.Length];
+            var per = ce.mesh.GetBonesPerVertex();
+            var bw = ce.mesh.GetAllBoneWeights();
+            int c = 0;
+            for (int v = 0; v < per.Length; v++)
+                for (int j = 0; j < per[v]; j++, c++)
+                    if (bw[c].boneIndex < sum.Length && bw[c].weight > 0f) { sum[bw[c].boneIndex] += bw[c].weight; cnt[bw[c].boneIndex]++; }
+            var arm = new List<int>();
+            for (int i = 0; i < sum.Length; i++)
+            {
+                if (cnt[i] == 0) continue;
+                var raw = ce.rawBones[i]; var map = ce.bones[i];
+                if (upper != null && ((raw != null && raw.IsChildOf(upper)) || (map != null && map.IsChildOf(upper)))) arm.Add(i);
+            }
+            if (arm.Count == 0)
+            {
+                for (int i = 0; i < sum.Length; i++) if (cnt[i] > 0) arm.Add(i);
+                sb.Append("\n    diag: no weighted bone under the upper arm — top weighted bones:");
+            }
+            arm.Sort((a, b) => sum[b].CompareTo(sum[a]));
+            if (arm.Count > 16) arm.RemoveRange(16, arm.Count - 16);
+            foreach (int i in arm)
+            {
+                var raw = ce.rawBones[i]; var map = ce.bones[i];
+                bool pair = raw != null && cache.boneMap != null && cache.boneMap.ContainsKey(raw);
+                bool known = raw != null && cache.known != null && cache.known.Contains(raw);
+                sb.Append($"\n    diag: [{i}] {P(raw)}{(map != raw ? " -> " + P(map) : "")} w={sum[i]:F1} v={cnt[i]} pair={pair} known={known}");
+            }
+            return sb.ToString();
+        }
+
+        static string Path(Transform root, Transform t)
+        {
+            var parts = new List<string>();
+            for (var p = t; p != null && p != root; p = p.parent) parts.Add(p.name);
+            parts.Reverse();
+            // 앞쪽(Armature/Hips/Spine…)은 줄인다 — 마지막 5단만
+            if (parts.Count > 5) { parts.RemoveRange(0, parts.Count - 5); parts.Insert(0, "…"); }
+            return string.Join("/", parts);
+        }
 
         static float[] Weights(Transform[] bones, Mesh m, Func<Transform, bool> pick)
         {
