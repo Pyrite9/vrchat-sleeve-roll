@@ -211,9 +211,10 @@ namespace Pyrite9.Sleeve
             var ce = cache.Get(c.cloth);
             foreach (var b in c.bones)
             {
-                int i = System.Array.IndexOf(ce.bones, b), pi = System.Array.IndexOf(ce.bones, b.parent);
+                // real bones: a chain's parent may be an outfit bone MA kept (docs 10-73) — compare against what the renderer really uses
+                int i = System.Array.IndexOf(ce.rawBones, b), pi = System.Array.IndexOf(ce.rawBones, b.parent);
                 if (i < 0 || pi < 0) continue;
-                var m = ce.bindposes[pi] * ce.bindposes[i].inverse;
+                var m = ce.rawBindposes[pi] * ce.rawBindposes[i].inverse;
                 float meters = Vector3.Distance(b.localPosition, m.GetColumn(3)) * b.parent.lossyScale.x;
                 if (Quaternion.Angle(b.localRotation, m.rotation) > MaxAngle || meters > MaxMeters) return "its rest pose differs from the mesh's bind pose";
             }
@@ -279,8 +280,8 @@ namespace Pyrite9.Sleeve
                     foreach (var t in between[c])
                     {
                         if (shadowOf.ContainsKey(t)) continue;
-                        int i = System.Array.IndexOf(ce.bones, t), pi = System.Array.IndexOf(ce.bones, t.parent);
-                        var rest = i >= 0 && pi >= 0 ? (ce.bindposes[pi] * ce.bindposes[i].inverse).rotation : t.localRotation;
+                        int i = System.Array.IndexOf(ce.rawBones, t), pi = System.Array.IndexOf(ce.rawBones, t.parent);
+                        var rest = i >= 0 && pi >= 0 ? (ce.rawBindposes[pi] * ce.rawBindposes[i].inverse).rotation : t.localRotation;
                         var s = Shadow(t, shadowOf.TryGetValue(t.parent, out var ps) ? ps : t.parent, rest);
                         shadowOf[t] = s;
                         c.shadows.Add(s);
@@ -288,10 +289,12 @@ namespace Pyrite9.Sleeve
                 foreach (var b in reach)   // parents come first
                 {
                     if (!needed.Contains(b) || shadowOf.ContainsKey(b)) continue;   // another chain made it already
-                    int i = System.Array.IndexOf(ce.bones, b);
+                    int i = System.Array.IndexOf(ce.rawBones, b);
                     bool onProxy = b == c.root && b.parent == proxy && proxy != null;
-                    int pi = onProxy ? hi : System.Array.IndexOf(ce.bones, b.parent);   // the proxy's bind pose is the hand's
-                    var rest = i >= 0 && pi >= 0 ? (ce.bindposes[pi] * ce.bindposes[i].inverse).rotation : b.localRotation;
+                    // the proxy's bind pose is the avatar hand's (retargeted, like the proxy's own — docs 10-73); any other parent is a real bone
+                    int pi = onProxy ? hi : System.Array.IndexOf(ce.rawBones, b.parent);
+                    var parentBp = pi < 0 ? default : onProxy ? ce.bindposes[pi] : ce.rawBindposes[pi];
+                    var rest = i >= 0 && pi >= 0 ? (parentBp * ce.rawBindposes[i].inverse).rotation : b.localRotation;
                     var s = Shadow(b, shadowOf.TryGetValue(b.parent, out var ps) ? ps : b.parent, rest);
                     shadowOf[b] = s;
                     c.shadows.Add(s);

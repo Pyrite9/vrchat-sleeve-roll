@@ -30,8 +30,9 @@ namespace Pyrite9.Sleeve
         readonly Dictionary<SkinnedMeshRenderer, Vector3[]> rolled = new Dictionary<SkinnedMeshRenderer, Vector3[]>();
         SleeveRollPb pb;
 
-        public SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets)
-            : this(root, animator, log, rec, deleteTargets, new SleeveRollShape.Cache(), null) { }
+        public SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets,
+            Dictionary<Transform, Transform> boneMap = null, HashSet<Transform> known = null)
+            : this(root, animator, log, rec, deleteTargets, new SleeveRollShape.Cache { boneMap = boneMap, known = known }, null) { }
 
         SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets,
             SleeveRollShape.Cache cache, Dictionary<SkinnedMeshRenderer, Mesh> previewMeshes)
@@ -233,13 +234,15 @@ namespace Pyrite9.Sleeve
             string side = SrSide.Letter(r.left);
             var lower = animator.GetBoneTransform(SrSide.Lower(r.left));
             var hand = animator.GetBoneTransform(SrSide.Hand(r.left));
-            if (!SleeveRollShape.BindLocalRotation(j.cloth, lower, hand, out var rest))
+            // 옷의 손·아래팔이 MA가 남긴 의상 본이어도 아바타 본으로 본다(계산용 본·바인드 포즈 — 문의 10-73)
+            var ce = cache.Get(j.cloth);
+            if (!SleeveRollShape.BindLocalRotation(ce, lower, hand, out var rest))
             {
                 log.AppendLine($"  {j.cloth.name} {side}: no hand weights — wrist proxy skipped");
                 return;
             }
             var proxy = SleeveRollDriver.Proxy(lower, hand, rest, SrSide.ProxyName(r.left));
-            int moved = SleeveRollShape.Rebind(j.cloth, j.mesh, hand, proxy, r.roll, pb.Keep);
+            int moved = SleeveRollShape.Rebind(j.cloth, j.mesh, hand, proxy, r.roll, ce, pb.Keep);
             (r.left ? j.g.left : j.g.right).rebound = moved;
             log.AppendLine($"  {j.cloth.name} {side}: wrist proxy {proxy.name}, rebound {moved} vertices");
         }

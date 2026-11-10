@@ -4,7 +4,7 @@ namespace Pyrite9.Sleeve
 {
     static class SleeveRollConst
     {
-        public const string Version = "0.1.2";
+        public const string Version = "0.1.3-beta1";
         public const string LogPath = "Logs/Pyrite9_SleeveRoll_build.txt";
         public const long LogLimit = 512 * 1024;   // bytes; past this the build log starts over, the previous one kept as .old
         public const string MenuIconGuid = "2c1a6432f6b84d1f850a76fe1f2f09b8";   // Icons/SleeveRoll_Menu.png (Source/tools/make_menu_icon.py)

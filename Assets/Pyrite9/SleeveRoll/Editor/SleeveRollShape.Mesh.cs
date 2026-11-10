@@ -66,8 +66,13 @@ namespace Pyrite9.Sleeve
             internal sealed class Entry
             {
                 public Mesh mesh;
+                /// <summary>계산용 — 의상 쪽 본(합치기 전 의상 본, MA가 남긴 의상 본, MA ScaleProxy)을 대응하는 아바타 본으로 바꾸고,
+                /// 바인드 포즈는 MA 재타깃과 같은 식으로 그 아바타 본 기준으로 고친 것(가상 재타깃 — 렌더러·메시는 안 바꾼다)</summary>
                 public Transform[] bones;
                 public Matrix4x4[] bindposes;
+                /// <summary>렌더러의 실제 본·메시 바인드 포즈 — PhysBone 체인처럼 실제 Transform을 비교할 때. 대응이 없으면 bones·bindposes와 같은 배열</summary>
+                public Transform[] rawBones;
+                public Matrix4x4[] rawBindposes;
                 public HideInfo[] hide;          // ActiveHide 좌·우, null = 아직 안 구함
                 public SkinnedMeshRenderer shapes;   // 셰이프 값을 읽을 렌더러 — 빌드는 그 렌더러, 미리 보기는 프록시
                 public Dictionary<Transform, Transform> boneMap;   // 미리 보기만 — 아직 안 합쳐진 의상 본 → 아바타 본
@@ -120,9 +125,34 @@ namespace Pyrite9.Sleeve
 
             readonly Dictionary<SkinnedMeshRenderer, Entry> map = new Dictionary<SkinnedMeshRenderer, Entry>();
 
-            /// <summary>미리 보기만(빌드는 둘 다 null): 원본 → 프록시(앞 단계가 바꾼 메시·셰이프 값) / 아직 안 합쳐진 의상 본 → 아바타 본</summary>
+            /// <summary>미리 보기만(빌드는 null): 원본 → 프록시(앞 단계가 바꾼 메시·셰이프 값)</summary>
             public Dictionary<SkinnedMeshRenderer, SkinnedMeshRenderer> proxies;
+            /// <summary>
+            /// 의상 본 → 아바타 본(MA Merge Armature 매핑). 미리 보기는 그때 읽은 것, 빌드는 Generating(MA 앞)에서 찍어 둔 것 —
+            /// MA가 합치지 않고 남긴 의상 본도 Transform이 그대로라 찾힌다(문의 10-73)
+            /// </summary>
             public Dictionary<Transform, Transform> boneMap;
+            /// <summary>빌드만: 찍어 둘 때 있던 Transform 전부. 그 뒤에 생긴 본(MA ScaleProxy·중간 오브젝트)은 가장 가까운 조상의 대응으로 본다. null = 매핑만</summary>
+            public HashSet<Transform> known;
+
+            /// <summary>계산에서 이 본을 어느 본으로 볼까 — 대응이 없으면 그대로</summary>
+            public Transform Map(Transform b)
+            {
+                if (b == null || boneMap == null) return b;
+                if (boneMap.TryGetValue(b, out var to))
+                {
+                    // 의상을 다른 의상에 합치는 경우 — 짝을 끝까지 따라간다
+                    for (int hop = 0; hop < 8 && boneMap.TryGetValue(to, out var next) && next != null; hop++) to = next;
+                    return to;
+                }
+                if (known == null || known.Contains(b)) return b;
+                for (var p = b.parent; p != null; p = p.parent)
+                {
+                    if (boneMap.ContainsKey(p)) return Map(p);
+                    if (known.Contains(p)) return p;
+                }
+                return b;
+            }
 
             /// <summary>렌더러 메시를 정점·웨이트가 같은 사본으로 바꾼 뒤(셰이프만 더함) — 읽은 것을 그대로 쓴다. 안 그러면 다음 Get이 전부 다시 읽는다</summary>
             public void Adopt(SkinnedMeshRenderer r, Mesh copy)
@@ -136,14 +166,40 @@ namespace Pyrite9.Sleeve
                 if (proxies != null) proxies.TryGetValue(r, out proxy);
                 var m = proxy != null ? proxy.sharedMesh : r.sharedMesh;
                 if (map.TryGetValue(r, out var en) && en.mesh == m) return en;
-                var bones = r.bones;
-                if (boneMap != null)
-                    for (int i = 0; i < bones.Length; i++)
-                        if (bones[i] != null && boneMap.TryGetValue(bones[i], out var to)) bones[i] = to;
-                en = new Entry { mesh = m, bones = bones, bindposes = m.bindposes, shapes = proxy != null ? proxy : r, boneMap = boneMap };
+                var raw = r.bones;
+                var rawBp = m.bindposes;
+                Transform[] bones = raw;
+                Matrix4x4[] bp = rawBp;
+                for (int i = 0; i < raw.Length && i < rawBp.Length; i++)
+                {
+                    var to = Map(raw[i]);
+                    if (to == null || to == raw[i]) continue;
+                    if (bones == raw) { bones = (Transform[])raw.Clone(); bp = (Matrix4x4[])rawBp.Clone(); }
+                    bones[i] = to;
+                    // MA RetargetMeshes와 같은 식: 그 본에 실려 있던 정점이 아바타 본 기준으로 같은 자리에 오게
+                    bp[i] = to.worldToLocalMatrix * raw[i].localToWorldMatrix * rawBp[i];
+                }
+                en = new Entry { mesh = m, bones = bones, bindposes = bp, rawBones = raw, rawBindposes = rawBp, shapes = proxy != null ? proxy : r, boneMap = boneMap };
                 map[r] = en;
                 return en;
             }
+        }
+
+        /// <summary>MA Merge Armature 의상 본 → 아바타 본(MA가 합칠 짝). MA 앞(미리 보기·Generating)에서만 의미가 있다</summary>
+        internal static Dictionary<Transform, Transform> MergeMap(IEnumerable<nadena.dev.modular_avatar.core.ModularAvatarMergeArmature> merges)
+        {
+            var map = new Dictionary<Transform, Transform>();
+            foreach (var m in merges)
+            {
+                var target = m.mergeTargetObject;
+                if (target == null) continue;
+                map[m.transform] = target.transform;
+                var pairs = m.GetBonesMapping();
+                if (pairs == null) continue;
+                foreach (var (avatarBone, outfitBone) in pairs)
+                    if (avatarBone != null && outfitBone != null) map[outfitBone] = avatarBone;
+            }
+            return map;
         }
 
         // 같은 위치 정점(UV 이음새)을 한 번호로 묶는다. only: 이 정점들만(나머지는 −1), null이면 전부. count: 묶음 수

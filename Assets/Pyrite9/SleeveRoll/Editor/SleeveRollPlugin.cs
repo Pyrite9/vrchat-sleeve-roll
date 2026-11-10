@@ -33,7 +33,8 @@ namespace Pyrite9.Sleeve
             InPhase(BuildPhase.Generating)
                 .BeforePlugin("nadena.dev.modular-avatar")
                 .Run("Scan shape changers", ctx => SleeveRollDriver.ScanDelete(ctx, ctx.GetState<BuildState>()))
-                .Then.Run("Generate sleeve roll animator", ctx => SleeveRollDriver.Generate(ctx, ctx.GetState<BuildState>()));
+                .Then.Run("Generate sleeve roll animator", ctx => SleeveRollDriver.Generate(ctx, ctx.GetState<BuildState>()))
+                .Then.Run("Snapshot outfit bones", ctx => Snapshot(ctx, ctx.GetState<BuildState>()));
             InPhase(BuildPhase.Transforming)
                 .AfterPlugin("nadena.dev.modular-avatar")
                 .BeforePlugin("com.anatawa12.avatar-optimizer")
@@ -65,7 +66,7 @@ namespace Pyrite9.Sleeve
                 else
                 {
                     rec.built = true;
-                    var pb = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets).Run(comps);
+                    var pb = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets, state.boneMap, state.known).Run(comps);
                     if (pb != null && pb.Chains.Count > 0) SleeveRollPbFx.Add(ctx, pb.Chains, log);
                 }
             }
@@ -79,6 +80,19 @@ namespace Pyrite9.Sleeve
             foreach (var c in comps)
                 if (c != null) Object.DestroyImmediate(c);
             Report(log.ToString(), rec);
+        }
+
+        /// <summary>
+        /// MA 앞에서 의상 본 → 아바타 본 짝과 지금 있는 Transform을 찍어 둔다. MA는 PhysBone·Contact·Constraint가 가리키는 본, Bone Proxy 대상,
+        /// 옷 토글이 있는 옷의 컴포넌트 붙은 본을 합치지 않고 남기고, Scale Adjuster는 ScaleProxy를 끼운다 — 그 옷 메시는 MA 뒤에도 아바타 본이 아닌 본에 묶여 있다.
+        /// 계산은 이 짝으로 그 본을 아바타 본으로 본다(미리 보기와 같은 정의, 문의 10-73)
+        /// </summary>
+        static void Snapshot(BuildContext ctx, BuildState state)
+        {
+            var root = ctx.AvatarRootObject;
+            if (root.GetComponentsInChildren<SleeveRoll>(true).Length == 0) return;
+            state.boneMap = SleeveRollShape.MergeMap(root.GetComponentsInChildren<nadena.dev.modular_avatar.core.ModularAvatarMergeArmature>(true));
+            state.known = new System.Collections.Generic.HashSet<Transform>(root.GetComponentsInChildren<Transform>(true));
         }
 
         /// <summary>
@@ -187,5 +201,7 @@ namespace Pyrite9.Sleeve
         public int fxLayers;
         public int syncedBits;       // MA Parameters를 넣었으면 1 — 양쪽 다 꺼도 넣는다
         public readonly System.Collections.Generic.HashSet<string> deleteTargets = new System.Collections.Generic.HashSet<string>();   // MA Shape Changer Delete 모드 대상 렌더러 이름
+        public System.Collections.Generic.Dictionary<Transform, Transform> boneMap;   // MA 앞에서 찍은 의상 본 → 아바타 본(Snapshot)
+        public System.Collections.Generic.HashSet<Transform> known;                   // 그때 있던 Transform 전부
     }
 }

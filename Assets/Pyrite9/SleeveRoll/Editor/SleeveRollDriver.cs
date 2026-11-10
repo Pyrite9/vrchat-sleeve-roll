@@ -53,6 +53,8 @@ namespace Pyrite9.Sleeve
             var clips = new Clips(ctx.AvatarRootTransform);
             var picked = new HashSet<SkinnedMeshRenderer>(comps.SelectMany(c => c.Garments));
             var all = ctx.AvatarRootObject.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            // MA 앞이라 옷에 딸린 몸 메시는 아직 의상 본에 묶여 있다 — 짝으로 아바타 아래팔을 찾는다(문의 10-73)
+            var merge = SleeveRollShape.MergeMap(ctx.AvatarRootObject.GetComponentsInChildren<ModularAvatarMergeArmature>(true));
             bool anySide = false;
             foreach (bool left in SrSide.Both)
             {
@@ -60,7 +62,7 @@ namespace Pyrite9.Sleeve
                 if (sides.Count == 0) continue;
                 anySide = true;
                 int before = clips.Count;
-                AddSideCurves(clips, sides, left, animator, all, picked);
+                AddSideCurves(clips, sides, left, animator, all, picked, merge);
                 state.log.AppendLine($"FX {SrSide.Letter(left)}: {clips.Count - before} curves");
             }
 
@@ -99,7 +101,8 @@ namespace Pyrite9.Sleeve
             static AnimationCurve Const(float v) => new AnimationCurve(new Keyframe(0f, v), new Keyframe(1f / 60f, v));
         }
 
-        static void AddSideCurves(Clips clips, List<SleeveRoll> sides, bool left, Animator animator, SkinnedMeshRenderer[] all, HashSet<SkinnedMeshRenderer> picked)
+        static void AddSideCurves(Clips clips, List<SleeveRoll> sides, bool left, Animator animator, SkinnedMeshRenderer[] all, HashSet<SkinnedMeshRenderer> picked,
+            Dictionary<Transform, Transform> merge)
         {
             foreach (var c in sides)
                 foreach (var cloth in c.Garments)
@@ -113,17 +116,25 @@ namespace Pyrite9.Sleeve
             }
             // 되돌리기(D7)는 어느 몸에 셰이프가 생길지 아직 모른다 — 아래팔 본을 쓰고 블렌드셰이프가 있는 후보 전부에 건다(없는 셰이프 곡선은 아무 일도 안 한다)
             foreach (var c in sides.Where(SleeveRollBake.Unhides))
-                foreach (var body in SleeveRollBake.Skins(c, all, picked).Where(b => b.sharedMesh != null && b.sharedMesh.blendShapeCount > 0 && HasWeights(b, lower)))
+                foreach (var body in SleeveRollBake.Skins(c, all, picked).Where(b => b.sharedMesh != null && b.sharedMesh.blendShapeCount > 0 && HasWeights(b, lower, merge)))
                     clips.Curve(body.transform, typeof(SkinnedMeshRenderer), "blendShape." + SrSide.UnhideName(left), 0f, 100f);
         }
 
         /// <summary>정점 하나라도 그 본 웨이트가 있나 — 본 목록만으론 모른다(Salt는 모든 메시가 본 전체를 갖는다)</summary>
-        static bool HasWeights(SkinnedMeshRenderer r, Transform bone)
+        static bool HasWeights(SkinnedMeshRenderer r, Transform bone, Dictionary<Transform, Transform> merge)
         {
-            int i = System.Array.IndexOf(r.bones, bone);
-            if (i < 0) return false;
+            var bones = r.bones;
+            var on = new bool[bones.Length];
+            bool any = false;
+            for (int k = 0; k < bones.Length; k++)
+            {
+                var b = bones[k];
+                if (b != null && merge.TryGetValue(b, out var to)) b = to;
+                any |= on[k] = b != null && b == bone;
+            }
+            if (!any) return false;
             foreach (var w in r.sharedMesh.GetAllBoneWeights())
-                if (w.boneIndex == i && w.weight > 0f) return true;
+                if (w.boneIndex < on.Length && on[w.boneIndex] && w.weight > 0f) return true;
             return false;
         }
 

@@ -51,13 +51,19 @@ namespace Pyrite9.Sleeve
                 if (animator == null || !animator.isHuman) continue;
                 var lowerL = animator.GetBoneTransform(SrSide.Lower(true));
                 var lowerR = animator.GetBoneTransform(SrSide.Lower(false));
+                // a body mesh that comes with an outfit is still on the outfit's bones here — read it through the merge mapping like the build
+                var merge = MergeMap(context, root);
                 foreach (var r in context.GetComponentsInChildren<SkinnedMeshRenderer>(root, true))
                 {
                     if (set.Contains(r)) continue;
                     var mesh = context.Observe(r, x => x.sharedMesh);
                     if (mesh == null || mesh.blendShapeCount == 0) continue;
-                    var bones = r.bones;
-                    if (System.Array.IndexOf(bones, lowerL) >= 0 || System.Array.IndexOf(bones, lowerR) >= 0) set.Add(r);
+                    foreach (var b in r.bones)
+                    {
+                        if (b == null) continue;
+                        var to = merge.TryGetValue(b, out var m) ? m : b;
+                        if (to == lowerL || to == lowerR) { set.Add(r); break; }
+                    }
                 }
                 groups.Add(RenderGroup.For(set));
             }
@@ -100,19 +106,7 @@ namespace Pyrite9.Sleeve
 
         // outfit bones not merged yet → the avatar's bones (what the build sees after MA)
         static Dictionary<Transform, Transform> MergeMap(ComputeContext context, GameObject root)
-        {
-            var map = new Dictionary<Transform, Transform>();
-            foreach (var m in context.GetComponentsInChildren<ModularAvatarMergeArmature>(root, true))
-            {
-                var target = m.mergeTargetObject;
-                if (target == null) continue;
-                map[m.transform] = target.transform;
-                var pairs = m.GetBonesMapping();
-                if (pairs == null) continue;
-                foreach (var (avatarBone, outfitBone) in pairs) map[outfitBone] = avatarBone;
-            }
-            return map;
-        }
+            => SleeveRollShape.MergeMap(context.GetComponentsInChildren<ModularAvatarMergeArmature>(root, true));
 
         static string GarmentKey(SleeveRoll c) => string.Join(",", c.Garments.Select(g => g.GetInstanceID()));
 

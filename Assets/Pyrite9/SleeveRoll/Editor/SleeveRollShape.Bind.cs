@@ -13,11 +13,13 @@ namespace Pyrite9.Sleeve
         /// 옮긴 정점 수를 돌려준다. 옷이 손 본에 묶여 있지 않거나 옮길 정점이 없으면 0(아무것도 안 바꿈).
         /// keep: 유지하는 PhysBone 소매 체인(10-33) — 손 자손이어도 안 옮긴다. 체인은 통째로 대리 본 밑으로 간다(SleeveRollPb)
         /// </summary>
-        internal static int Rebind(SkinnedMeshRenderer cloth, Mesh mesh, Transform hand, Transform proxy, float[] roll, ICollection<Transform> keep = null)
+        internal static int Rebind(SkinnedMeshRenderer cloth, Mesh mesh, Transform hand, Transform proxy, float[] roll, Cache.Entry ce, ICollection<Transform> keep = null)
         {
             var bones = cloth.bones;
-            int hi = Array.IndexOf(bones, hand);
-            if (hi < 0 || roll == null) return 0;
+            // 손 자리 — 계산용 본으로 찾는다(옷의 손이 MA가 남긴 의상 본·ScaleProxy여도). 대리 본 바인드 포즈도 그 아바타 손 기준(가상 재타깃)이라야
+            // 대리 본(아바타 손 회전을 따름)에 옮긴 정점이 원래 자리에 온다
+            int hi = Array.IndexOf(ce.bones, hand);
+            if (hi < 0 || hi >= bones.Length || roll == null) return 0;
             var isHand = new bool[bones.Length];
             for (int i = 0; i < bones.Length; i++) isHand[i] = bones[i] != null && (bones[i] == hand || bones[i].IsChildOf(hand)) && (keep == null || !keep.Contains(bones[i]));
             int pi = Array.IndexOf(bones, proxy);
@@ -27,7 +29,7 @@ namespace Pyrite9.Sleeve
             {
                 pi = newBones.Count;
                 newBones.Add(proxy);
-                bp.Add(bp[hi]);
+                bp.Add(ce.bindposes[hi]);
             }
 
             var per = mesh.GetBonesPerVertex();
@@ -71,11 +73,12 @@ namespace Pyrite9.Sleeve
             var set = new HashSet<Transform>();
             var per = ce.mesh.GetBonesPerVertex();
             var bw = ce.mesh.GetAllBoneWeights();
+            var bones = ce.rawBones;   // 실제 Transform — PhysBone 체인 본과 비교한다
             int c = 0;
             for (int v = 0; v < per.Length; v++)
                 for (int j = 0; j < per[v]; j++, c++)
-                    if (v < roll.Length && roll[v] > 0f && bw[c].weight >= 0.01f && bw[c].boneIndex < ce.bones.Length && ce.bones[bw[c].boneIndex] != null)
-                        set.Add(ce.bones[bw[c].boneIndex]);
+                    if (v < roll.Length && roll[v] > 0f && bw[c].weight >= 0.01f && bw[c].boneIndex < bones.Length && bones[bw[c].boneIndex] != null)
+                        set.Add(bones[bw[c].boneIndex]);
             return set;
         }
 
@@ -95,7 +98,7 @@ namespace Pyrite9.Sleeve
             t = float.MinValue;
             var ce = cache.Get(cloth);
             if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f) != null) return false;
-            var w = Weights(ce.bones, ce.mesh, new HashSet<Transform>(pick).Contains);
+            var w = Weights(ce.rawBones, ce.mesh, new HashSet<Transform>(pick).Contains);   // pick은 실제 체인 본
             var verts = ce.Vertices;
             for (int i = 0; i < verts.Length; i++)
             {
@@ -107,14 +110,12 @@ namespace Pyrite9.Sleeve
         }
 
         /// <summary>손 본의 바인드 포즈 회전을 아래팔 기준으로 — 대리 본의 쉬는 자세(제약 가중치 0일 때)</summary>
-        internal static bool BindLocalRotation(SkinnedMeshRenderer cloth, Transform lower, Transform hand, out Quaternion rot)
+        internal static bool BindLocalRotation(Cache.Entry ce, Transform lower, Transform hand, out Quaternion rot)
         {
             rot = Quaternion.identity;
-            var bones = cloth.bones;
-            int li = Array.IndexOf(bones, lower), hi = Array.IndexOf(bones, hand);
+            int li = Array.IndexOf(ce.bones, lower), hi = Array.IndexOf(ce.bones, hand);
             if (li < 0 || hi < 0) return false;
-            var bp = cloth.sharedMesh.bindposes;
-            rot = (bp[li] * bp[hi].inverse).rotation;
+            rot = (ce.bindposes[li] * ce.bindposes[hi].inverse).rotation;
             return true;
         }
     }
