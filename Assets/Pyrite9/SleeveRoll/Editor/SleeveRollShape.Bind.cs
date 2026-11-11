@@ -18,8 +18,8 @@ namespace Pyrite9.Sleeve
             var bones = cloth.bones;
             // 손 자리 — 계산용 본으로 찾는다(옷의 손이 MA가 남긴 의상 본·ScaleProxy여도). 대리 본 바인드 포즈도 그 아바타 손 기준(가상 재타깃)이라야
             // 대리 본(아바타 손 회전을 따름)에 옮긴 정점이 원래 자리에 온다
-            int hi = Array.IndexOf(ce.bones, hand);
-            if (hi < 0 || hi >= bones.Length || roll == null) return 0;
+            // 손 본이 메시에 없고 그 자손(소체가 제약으로 따라가게 둔 손 사본 `Hand_L_Const/Hand_L` 등)에만 묶인 옷은 손 바인드 포즈를 유도한다(10-77)
+            if (roll == null || !LowerBind(ce.bones, ce.bindposes, hand, null, out var bpHand, ce.boneMap)) return 0;
             var isHand = new bool[bones.Length];
             for (int i = 0; i < bones.Length; i++) isHand[i] = bones[i] != null && (bones[i] == hand || bones[i].IsChildOf(hand)) && (keep == null || !keep.Contains(bones[i]));
             int pi = Array.IndexOf(bones, proxy);
@@ -29,7 +29,7 @@ namespace Pyrite9.Sleeve
             {
                 pi = newBones.Count;
                 newBones.Add(proxy);
-                bp.Add(ce.bindposes[hi]);
+                bp.Add(bpHand);
             }
 
             var per = mesh.GetBonesPerVertex();
@@ -113,10 +113,10 @@ namespace Pyrite9.Sleeve
         internal static bool BindLocalRotation(Cache.Entry ce, Transform lower, Transform hand, out Quaternion rot)
         {
             rot = Quaternion.identity;
-            int hi = Array.IndexOf(ce.bones, hand);
-            // 아래팔 본이 메시에 없고 자손(트위스트 등)에만 묶인 옷도 아래팔 바인드 포즈를 유도해 쓴다(10-75)
-            if (hi < 0 || hi >= ce.bindposes.Length || !LowerBind(ce.bones, ce.bindposes, lower, hand, out var bpLower, ce.boneMap)) return false;
-            rot = (bpLower * ce.bindposes[hi].inverse).rotation;
+            // 아래팔·손 본이 메시에 없고 자손(트위스트, 소체의 제약 사본 등)에만 묶인 옷도 바인드 포즈를 유도해 쓴다(10-75·77)
+            if (!LowerBind(ce.bones, ce.bindposes, hand, null, out var bpHand, ce.boneMap)) return false;
+            if (!LowerBind(ce.bones, ce.bindposes, lower, hand, out var bpLower, ce.boneMap)) return false;
+            rot = (bpLower * bpHand.inverse).rotation;
             return true;
         }
     }

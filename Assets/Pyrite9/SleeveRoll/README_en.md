@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-Version 0.1.3-beta2 (2026-11-10)
+Version 0.1.3-beta3 (2026-11-11)
 
 A sleeve-rolling gimmick for VRChat avatars. Drop the prefab into an avatar and pick the sleeved garment — when you build, the rolled-up sleeve is worked out from that garment's own mesh.
 Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package — the shape is made at build time from the garment you own.
@@ -138,6 +138,7 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 
 ## Changelog
 
+- **0.1.3-beta3** (2026-11-11): Fixed the rolled cuff swinging away from the arm when the wrist bends, on avatars whose clothes are weighted to copies of the hand bone placed under it (for example `Hand_L/Hand_L_Const/Hand_L`). The wrist proxy is now added for them too. Other outfits build the same as 0.1.3-beta2.
 - **0.1.3-beta2** (2026-11-10): Outfits whose sleeve is weighted only to bones under the forearm (a twist bone, or the original bones an outfit conversion tool leaves behind) instead of the forearm bone itself are now handled. When a side fails with `the garment is not weighted to the forearm bone` or `no sleeve vertices on the forearm`, or when the forearm had to be found from a bone under it, the build log now lists the bones the sleeve is weighted to (lines starting with `diag:`). The inspector's changelog now also shows test versions.
 - **0.1.3-beta1** (2026-11-10): Fixed sleeves that rolled in the Preview but failed at build with `the garment is not weighted to the forearm bone`. It happened when Modular Avatar keeps an outfit's forearm, hand or upper-arm bone instead of merging it (for example a bone that a PhysBone, collider, contact or constraint points to, or a bone with an MA Scale Adjuster). From the same cause, the body mesh is now found when the avatar's own forearm has an MA Scale Adjuster, and the wrist proxy now works when the outfit's hand bone is kept. The Preview now places outfit bones the same way as the build. Other outfits build the same as 0.1.2.
 - **0.1.2** (2026-11-09): Fixed one sleeve not rolling on outfits that put the left and right sleeve PhysBones on one object (**Last build** said `a second PhysBone on one object`). On outfits where a sleeve PhysBone starts inside another, two PhysBones share a starting bone, or a sleeve PhysBone leaves some bones out with Ignore Transforms, the whole rolled sleeve now stays still, and the lowered sleeve sways as it does without Sleeve Roll (before, part of it kept swaying while rolled, or the cuff followed the wrist). A new build warning appears when two PhysBones move the same bone. The Preview line now says that for an outfit put on at build time the PhysBone check is decided by the build. Other outfits build the same as 0.1.1.
