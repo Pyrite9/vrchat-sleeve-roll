@@ -96,7 +96,7 @@ namespace Pyrite9.Sleeve
             return buttons;
         }
 
-        // one sleeve's result: 'off' · 't 0.55 · stopped at the hidden arm · 312 restored' · 'failed — message' (the message stays English)
+        // one sleeve's result: 'off' · 'to 0.45 · PhysBone 1 kept (still while rolled) · stopped at the shrink edge · shrink released on 312 vertices' · 'failed — message' (the message stays English)
         string SideText(SrBuildRecord.Side s)
         {
             if (!s.on) return T(lang, "off", "なし", "안 걷음");
@@ -113,8 +113,8 @@ namespace Pyrite9.Sleeve
 
         static string WarnKind(string w) => System.Text.RegularExpressions.Regex.Replace(w, @"[0-9]+([.,][0-9]+)?", "#");
 
-        // what to do, for the build's known warnings (matched on the English text — SleeveRollBake / SleeveRollShape; same as the
-        // README's 'Troubleshooting' table). Unknown ones get no hint
+        // what to do, for the build's known warnings (matched on the English text — SleeveRollPlugin / SleeveRollBake / SleeveRollShape / SleeveRollPb).
+        // The README's 'Troubleshooting' table covers most of them, not all. Unknown ones get no hint
         static readonly (string[] match, string en, string jp, string ko)[] Hints =
         {
             (new[] { "Not a humanoid avatar" },
@@ -169,6 +169,34 @@ namespace Pyrite9.Sleeve
                 "Two switches for the same sleeves — delete the toggle you made yourself, or turn Menu off and keep only yours.",
                 "同じ袖のスイッチが 2 つあります — 自分で作ったトグルを消すか、メニュー をオフにして自分のものだけ残してください。",
                 "같은 소매 스위치가 두 개입니다 — 직접 만든 토글을 지우거나, 메뉴를 끄고 직접 만든 것만 남기세요."),
+            (new[] { "PhysBone stops moving" },
+                "This sleeve's PhysBone can't be kept safely (reason in the brackets), so the sleeve follows the hand with no physics. It still rolls. To keep the physics, remove the cause in the brackets.",
+                "この袖の PhysBone を安全に維持できないため（理由は括弧内）、袖は物理なしで手に付いていきます。まくることはできます。物理を残すには括弧内の原因を取り除いてください。",
+                "이 소매의 PhysBone을 안전하게 유지할 수 없어서(이유는 괄호 안) 소매가 물리 없이 손을 따라갑니다. 걷히기는 합니다. 물리를 살리려면 괄호 안 원인을 없애세요."),
+            (new[] { "cannot be held still while rolled" },
+                "This sleeve does not roll, because its physics can't be held still. Remove the cause in the second brackets.",
+                "この袖はまくれません。物理を止めておけないためです。2 つ目の括弧内の原因を取り除いてください。",
+                "이 쪽 소매는 걷히지 않습니다. 물리를 멈춰 둘 수 없어서입니다. 두 번째 괄호 안 원인을 없애세요."),
+            (new[] { "it cannot be rolled" },
+                "A PhysBone on the upper arm holds the sleeve down to the cuff. This outfit can't be rolled.",
+                "上腕の PhysBone が袖口まで支えているため、まくれない衣装です。",
+                "위팔의 PhysBone이 소맷단까지 잡고 있어 걷을 수 없는 옷입니다."),
+            (new[] { "the two fight over it" },
+                "Two of the outfit's PhysBones move the same bone — the outfit's own setting, it sways the same without Sleeve Roll and the sleeve still rolls. To fix it, remove one, or put the inner PhysBone's first bone in the outer one's Ignore Transforms.",
+                "衣装の PhysBone 2 つが同じボーンを動かしています — 衣装自体の設定で、Sleeve Roll がなくても同じ揺れです。そのままでもまくれます。直すなら片方を消すか、外側の PhysBone の Ignore Transforms に内側の開始ボーンを入れてください。",
+                "옷의 PhysBone 두 개가 같은 본을 움직입니다 — 옷 자체 설정이라 Sleeve Roll이 없어도 같은 흔들림이고, 그대로 둬도 걷힙니다. 고치려면 하나를 지우거나 바깥쪽 PhysBone의 Ignore Transforms에 안쪽 시작 본을 넣으세요."),
+            (new[] { "the rolled shape" },
+                "Sleeve Roll could not work out a sound rolled shape for this sleeve, so it is left as it is. Check the avatar's arm bones (lower arm and hand apart?) — if they look fine, please send the build log to the author.",
+                "この袖はまくった形を正しく計算できなかったため、そのままにしています。アバターの腕のボーン（前腕と手が離れているか）を確認し、問題なければビルドログを作者に送ってください。",
+                "이 소매는 걷은 모양을 제대로 계산하지 못해 그대로 뒀습니다. 아바타 팔 본(아래팔과 손이 떨어져 있는지)을 확인하고, 문제없으면 빌드 로그를 제작자에게 보내 주세요."),
+            (new[] { "stopped on an internal error" },
+                "Sleeve Roll hit a bug on this avatar — the sleeves may roll wrong. Please send Logs/Pyrite9_SleeveRoll_build.txt (the EXCEPTION line) to the author.",
+                "このアバターで Sleeve Roll の不具合が起きました — 袖が正しくまくれない可能性があります。Logs/Pyrite9_SleeveRoll_build.txt（EXCEPTION の行）を作者に送ってください。",
+                "이 아바타에서 Sleeve Roll 버그가 났습니다 — 소매가 제대로 안 걷힐 수 있습니다. Logs/Pyrite9_SleeveRoll_build.txt(EXCEPTION 줄)를 제작자에게 보내 주세요."),
+            (new[] { "not inside this avatar" },
+                "That garment belongs to another avatar (a copied component?) — pick the garment of this avatar.",
+                "その衣装は別のアバターのものです（コンポーネントをコピーした？）— このアバターの衣装を選んでください。",
+                "그 옷은 다른 아바타의 것입니다(컴포넌트를 복사함?) — 이 아바타의 옷을 골라 주세요."),
             (new[] { "already has a shape key with this name" },
                 "The garment already has SleeveUp_L/R (another tool or a baked copy?) — use the original garment mesh.",
                 "衣装にすでに SleeveUp_L/R があります（別のツールか焼き込み済みのコピー？）— 元の衣装のメッシュを使ってください。",

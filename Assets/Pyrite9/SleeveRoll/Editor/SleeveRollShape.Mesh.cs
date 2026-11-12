@@ -39,7 +39,7 @@ namespace Pyrite9.Sleeve
             f.laToMesh = bpLower.inverse;
             f.e = f.laToMesh.MultiplyPoint3x4(Vector3.zero);
             // 손 본이 메시에 없으면 바인드 포즈를 아래팔 기준 상대 위치로 구한다
-            var wr = hi >= 0 ? bp[hi].inverse.MultiplyPoint3x4(Vector3.zero)
+            var wr = hi >= 0 && hi < bp.Length ? bp[hi].inverse.MultiplyPoint3x4(Vector3.zero)
                              : f.laToMesh.MultiplyPoint3x4(f.lower.InverseTransformPoint(f.hand.position));
             var ax = wr - f.e;
             f.L = ax.magnitude;
@@ -49,7 +49,7 @@ namespace Pyrite9.Sleeve
             f.mPerUnit = Vector3.Distance(f.lower.position, f.hand.position) / f.L;
             f.upper = animator.GetBoneTransform(left ? HumanBodyBones.LeftUpperArm : HumanBodyBones.RightUpperArm);
             int ua = f.upper != null ? Array.IndexOf(bones, f.upper) : -1;
-            if (ua >= 0) f.shoulder = bp[ua].inverse.MultiplyPoint3x4(Vector3.zero); else f.upper = null;
+            if (ua >= 0 && ua < bp.Length) f.shoulder = bp[ua].inverse.MultiplyPoint3x4(Vector3.zero); else f.upper = null;   // 본 목록이 바인드 포즈보다 긴 렌더러(메시만 바꿔 끼움)도 있다
             // 둘레 각도 기준은 아무 수직 벡터면 된다 — 옷·피부에 같은 틀만 쓰면 됨
             var cand = Mathf.Abs(ax.y) < 0.9f ? Vector3.up : Vector3.forward;
             f.u = (cand - ax * Vector3.Dot(cand, ax)).normalized;
@@ -59,7 +59,8 @@ namespace Pyrite9.Sleeve
 
         /// <summary>
         /// 빌드 한 번 동안 렌더러마다 메시 읽기(본·바인드 포즈·정점·웨이트·몸 숨김)를 나눠 쓴다 — 옷마다·쪽마다 다른 메시 전부를 다시 읽지 않게.
-        /// 렌더러의 sharedMesh가 바뀌면(옷·몸 사본) 새로 읽는다. 본 목록이 바뀐 렌더러(Rebind 뒤의 옷)엔 쓰지 않는다
+        /// 렌더러의 sharedMesh가 바뀌면(옷·몸 사본) 새로 읽는다. Rebind는 메시 객체를 그대로 두고 대리 본을 본 목록 맨 뒤에 붙이므로
+        /// 그 뒤의 Get은 Rebind 전 항목을 돌려준다 — 기존 본 인덱스는 그대로라 체인 본 바인드 포즈 읽기(SleeveRollPb.Reparent)엔 맞지만, 대리 본·옮긴 웨이트는 안 보인다
         /// </summary>
         internal sealed class Cache
         {
@@ -75,9 +76,9 @@ namespace Pyrite9.Sleeve
                 public Matrix4x4[] rawBindposes;
                 public HideInfo[] hide;          // ActiveHide 좌·우, null = 아직 안 구함
                 public SkinnedMeshRenderer shapes;   // 셰이프 값을 읽을 렌더러 — 빌드는 그 렌더러, 미리 보기는 프록시
-                public Dictionary<Transform, Transform> boneMap;   // 미리 보기만 — 아직 안 합쳐진 의상 본 → 아바타 본
+                public Dictionary<Transform, Transform> boneMap;   // 의상 본 → 아바타 본 짝(Cache.boneMap) — 미리 보기는 그때 읽은 것, 빌드는 Generating에서 찍어 둔 것
                 Vector3[] vertices;
-                readonly Dictionary<(Transform, Transform, bool), float[]> weights = new Dictionary<(Transform, Transform, bool), float[]>();
+                readonly Dictionary<(Transform, Transform, int), float[]> weights = new Dictionary<(Transform, Transform, int), float[]>();
 
                 int[] triangles;
 
@@ -100,12 +101,28 @@ namespace Pyrite9.Sleeve
                 /// <summary>
                 /// 정점마다 고른 본 웨이트 합. descendants: 아래팔과 그 자손 전부 / 아니면 아래팔(+ hand가 있으면 손)만
                 /// </summary>
-                public float[] Weights(Transform lower, Transform hand, bool descendants)
+                public float[] Weights(Transform lower, Transform hand, bool descendants) => Weights(lower, hand, descendants ? 1 : 0);
+
+                /// <summary>
+                /// 피부 표본(아래팔이 본 목록에 있는 몸, 0.1.3-beta4 문제 A) — 아래팔 + 손 + 아래팔 자손 중 손·손 밑이 아닌 본(트위스트 등).
+                /// 팔뚝 피부 웨이트가 트위스트 본에 더 많이 실린 몸(Milltina `Lower_arm_Twist_L`)도 팔꿈치 쪽부터 잡는다
+                /// </summary>
+                public float[] ArmWeights(Transform lower, Transform hand) => Weights(lower, hand, 2);
+
+                // mode 0: 아래팔(+손) / 1: 아래팔과 그 자손 전부 / 2: 아래팔 + 손 + 아래팔 자손 중 손 밑이 아닌 본
+                float[] Weights(Transform lower, Transform hand, int mode)
                 {
-                    var key = (lower, hand, descendants);
+                    var key = (lower, hand, mode);
                     if (weights.TryGetValue(key, out var w)) return w;
                     Func<Transform, bool> pick;
-                    if (descendants) pick = b => { var x = Resolve(b); return x == lower || x.IsChildOf(lower); };
+                    if (mode == 1) pick = b => { var x = Resolve(b); return x == lower || x.IsChildOf(lower); };
+                    else if (mode == 2)
+                        pick = b =>
+                        {
+                            if (b == lower || b == hand) return true;
+                            var x = Resolve(b);
+                            return (x == lower || x.IsChildOf(lower)) && !(hand != null && x.IsChildOf(hand));
+                        };
                     else if (hand != null) pick = b => b == lower || b == hand;
                     else pick = b => b == lower;
                     w = SleeveRollShape.Weights(bones, mesh, pick);
@@ -257,7 +274,8 @@ namespace Pyrite9.Sleeve
             return false;
         }
 
-        /// <summary>b가 x의 자손인가 — 미리 보기(MA 앞)에선 의상에만 있는 본이 아직 의상 본 밑이라, 처음 만나는 짝 있는 조상을 아바타 본으로 본다</summary>
+        /// <summary>b가 x의 자손인가 — 미리 보기(MA 앞)에선 의상에만 있는 본이 아직 의상 본 밑이라, 처음 만나는 짝 있는 조상을 아바타 본으로 본다.
+        /// 빌드(MA 뒤)에선 MA가 남긴 의상 본(짝 있음)이 아바타 본 밑에 있어 같은 답이 나온다. 짝은 한 단계만 따라간다(의상을 의상에 합친 경우는 MA 앞에서 못 찾는다)</summary>
         static bool IsUnder(Transform b, Transform x, Dictionary<Transform, Transform> map)
         {
             for (var p = b.parent; p != null; p = p.parent)
@@ -269,8 +287,31 @@ namespace Pyrite9.Sleeve
         }
 
         /// <summary>
+        /// MA 앞(Generating의 되돌리기 FX 곡선, 미리 보기 그룹)에서 본 "이 메시의 아래팔 슬롯" — 빌드 뒷단이 팔뚝 틀을 잡는 규칙(LowerBind)과 같게:
+        /// 짝을 끝까지 따라가 아래팔인 본. 그런 본이 하나도 없으면 아래팔의 자손 본(손 밑 제외 — 트위스트, 소체가 제약으로 따라가게 둔 사본 등).
+        /// 뒷단은 그런 몸에도 되돌리기 셰이프를 넣는다 — 여기가 아래팔 자체만 보면 곡선 없는 셰이프가 생겨 걷힌 동안 팔이 줄어든 채 남는다(감사 0.1.3 C1)
+        /// </summary>
+        internal static bool[] ForearmSlots(Transform[] bones, Transform lower, Transform hand, Dictionary<Transform, Transform> merge, out bool any)
+        {
+            var on = new bool[bones.Length];
+            any = false;
+            if (lower == null) return on;
+            var pairs = new Cache { boneMap = merge };
+            for (int k = 0; k < bones.Length; k++) any |= on[k] = bones[k] != null && pairs.Map(bones[k]) == lower;
+            if (any) return on;
+            for (int k = 0; k < bones.Length; k++)
+            {
+                var b = bones[k];
+                if (b == null || !IsUnder(b, lower, merge)) continue;
+                if (hand != null && (pairs.Map(b) == hand || IsUnder(b, hand, merge))) continue;
+                any |= on[k] = true;
+            }
+            return on;
+        }
+
+        /// <summary>
         /// 실패 진단(빌드 로그용, 영어) — 그쪽 위팔 밑에 웨이트가 실린 메시 본 전부: 실제 본 경로, 계산에서 본 본, Merge 짝·MA 앞에 있던 본인지,
-        /// 웨이트 합·정점 수. 위팔 밑에 하나도 없으면 웨이트가 큰 본 8개. 문의 10-75 — 사용자 옷 구조를 로그 한 번으로 알기 위해
+        /// 웨이트 합·정점 수 — 웨이트 큰 순 16개까지. 위팔 밑에 하나도 없으면 메시 전체에서 16개. 문의 10-75 — 사용자 옷 구조를 로그 한 번으로 알기 위해
         /// </summary>
         internal static string Diagnose(Animator animator, bool left, Cache cache, Cache.Entry ce)
         {

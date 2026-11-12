@@ -8,7 +8,7 @@ namespace Pyrite9.Sleeve
     /// 소매 걷기 셰이프키 계산(D3) — 받는 사람의 옷 메시로 빌드 때 만든다. 배포물엔 메시 데이터가 없다.
     /// 팔뚝 원통 좌표(t: 0 팔꿈치 ~ 1 손목, r: 축 거리, θ)에서 소매를 [t0, 소매 끝] → [t0, tTarget]로 압축하고,
     /// 반지름은 새 위치의 피부 + 여유 + 원래 겹 두께 + 남은 헐렁함 × snug + 주름 물결로 둔다(sleeve-roll.md 2절).
-    /// 파일: 이 파일(입구·걷기) · .Skin(피부 반지름) · .Layers(겹 두께) · .Smooth(걷힌 반지름 다듬기) · .Normals(노멀 변화) · .Hide(옷이 줄인 몸) · .Bind(손목 대리 본 웨이트) · .Mesh(팔뚝 좌표계·읽기 캐시)
+    /// 파일: 이 파일(입구·걷기) · .Norm(처진 소매 정규화 — 움직인 소매는 이 경로만) · .Skin(피부 반지름) · .Layers(겹 두께) · .Smooth(걷힌 반지름 다듬기) · .Normals(노멀 변화) · .Hide(옷이 줄인 몸) · .Bind(손목 대리 본 웨이트) · .Mesh(팔뚝 좌표계·읽기 캐시)
     /// </summary>
     public static partial class SleeveRollShape
     {
@@ -39,6 +39,8 @@ namespace Pyrite9.Sleeve
             public float forearmMeters, sleeveEnd, clothRadiusMm, skinRadiusMm;
             /// <summary>손목에서 팔꿈치 쪽으로 피부 메시가 이어지는 데까지(t) — 이보다 팔꿈치 쪽은 몸이 잘려 없다. 실제로 걷은 자리 rolledTo는 이 너머로 밀린다</summary>
             public float skinFrom, rolledTo;
+            /// <summary>피부가 늦게 시작해 거기까지만 걷었다(ok인 채) — 빌드·미리 보기에 WARN도 낸다(0.1.3-beta4)</summary>
+            public bool skinShort;
             /// <summary>정규화가 움직인 소매만 채운다(빌드 로그 한 줄)</summary>
             public string note;
             /// <summary>정점마다 걷히는 정도(0~1) — 손목 대리 본으로 웨이트를 옮길 정점 고르기</summary>
@@ -106,7 +108,9 @@ namespace Pyrite9.Sleeve
                     if (mesh.GetBlendShapeIndex(name) < 0)
                     {
                         if (nb == null) nb = PrepareNormals(ce);
-                        mesh.AddBlendShapeFrame(name, 100f, delta, NormalDeltas(nb, delta), null);
+                        var dn = NormalDeltas(nb, delta);
+                        if (Finite(dn)) mesh.AddBlendShapeFrame(name, 100f, delta, dn, null);
+                        else { rep.ok = false; rep.message = "the rolled shape has invalid normals (NaN) — skipped"; }
                     }
                     else { rep.ok = false; rep.message = "the garment already has a shape key with this name — skipped"; }   // not a success: no WARN otherwise, and the weights would move to the wrist proxy for a shape we did not make
                 }
@@ -151,6 +155,9 @@ namespace Pyrite9.Sleeve
             // 정규화: 이동이 정확히 0이면 기존 경로 그대로. 움직인 소매는 정규화 경로만 탄다(SleeveRollShape.Norm.cs)
             var delta = Norm6.TryRoll(ce, f, R, s, ref rep, out var normDelta) ? normDelta : RollDeltas(ce, f, R, sleeve, s, ref rep);
             if (delta == null) return null;
+            // 마지막 안전망(읽기만 — 계산은 안 바꾼다): 깨진 이동이 셰이프로 들어가면 인게임에서 메시가 터진다. 그쪽만 실패로
+            var broken = Broken(ce.Vertices, delta, f);
+            if (broken != null) { rep.message = broken; return null; }
             // 소매가 피부보다 가늘면 대상을 잘못 고른 것(몸 메시를 옷으로) — 걷으면 몸이 부풀어 오른다
             if (rep.clothRadiusMm < rep.skinRadiusMm)
             {
@@ -158,9 +165,38 @@ namespace Pyrite9.Sleeve
                 return null;
             }
             if (rep.skinFrom + SkinOverlap > 0.3f && rep.rolledTo > 0f)
+            {
                 rep.message = $"forearm skin starts at t={rep.skinFrom:F2} — rolled only to there (t={rep.rolledTo:F2})";
+                rep.skinShort = true;
+            }
             rep.ok = true;
             return delta;
+        }
+
+        /// <summary>
+        /// 걷은 모양이 깨졌나 — NaN·Inf, 또는 정점이 팔꿈치에서 원래보다 팔뚝 길이 넘게 멀어진다. 걷기는 천을 팔 쪽으로 모으는 이동이라
+        /// (가장 큰 반대 방향 이동인 위팔 당김도 팔뚝 길이의 0.3) 정상 옷은 근처에도 안 온다. 기준은 옷 치수가 아니라 팔뚝 길이. 깨졌으면 이유(영어), 아니면 null
+        /// </summary>
+        static string Broken(Vector3[] verts, Vector3[] delta, in Forearm f)
+        {
+            for (int i = 0; i < delta.Length && i < verts.Length; i++)
+            {
+                var d = delta[i];
+                if (d.x == 0f && d.y == 0f && d.z == 0f) continue;
+                if (float.IsNaN(d.x) || float.IsNaN(d.y) || float.IsNaN(d.z) || float.IsInfinity(d.x) || float.IsInfinity(d.y) || float.IsInfinity(d.z))
+                    return "the rolled shape has invalid numbers (NaN) — skipped";
+                if ((verts[i] + d - f.e).magnitude > (verts[i] - f.e).magnitude + f.L)
+                    return "the rolled shape throws vertices off the arm — skipped";
+            }
+            return null;
+        }
+
+        static bool Finite(Vector3[] a)
+        {
+            if (a == null) return true;
+            foreach (var d in a)
+                if (float.IsNaN(d.x) || float.IsNaN(d.y) || float.IsNaN(d.z) || float.IsInfinity(d.x) || float.IsInfinity(d.y) || float.IsInfinity(d.z)) return false;
+            return true;
         }
 
         /// <summary>소매 정점들의 원통 좌표와 섞는 정도</summary>
@@ -223,7 +259,9 @@ namespace Pyrite9.Sleeve
                 radialStart = t0 - TaperLead * taper;
                 // 많이 압축하는 옷은 기울기를 Smooth로 섞어 접히지 않게 — 전환 구간이 길어지는 만큼 나머지를 조금 더 압축해 소맷단은 같은 자리에 온다
                 kEven = (tT - t0 - ease * 0.5f) / (sleeveEnd - t0 - ease * 0.5f);
-                even = 1f - (1f - kComp) * EaseSlopePeak < MinEaseSlope && kEven > 0f;
+                // 분자·분모가 둘 다 음수여도 kEven > 0이다(움직임 시작이 소맷단 자리에 붙고 소매 끝이 가까울 때) — 그 사상은 소매를 손 쪽으로 늘인다.
+                // 분모가 양수일 때만 쓴다(그때는 kEven > 0 ⇔ 분자 > 0, 전과 같다). 아니면 선형 압축(kComp)
+                even = 1f - (1f - kComp) * EaseSlopePeak < MinEaseSlope && kEven > 0f && sleeveEnd - t0 - ease * 0.5f > 0f;
             }
 
             /// <summary>웨이트를 빼고 다 걷혔을 때의 자리</summary>

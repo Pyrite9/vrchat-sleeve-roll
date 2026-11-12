@@ -29,6 +29,49 @@ namespace Pyrite9.Sleeve
         // 안쪽 옷의 걷힌 정점 — 바깥 옷이 피부로 잰다
         readonly Dictionary<SkinnedMeshRenderer, Vector3[]> rolled = new Dictionary<SkinnedMeshRenderer, Vector3[]>();
         SleeveRollPb pb;
+        // 쪽마다(0 왼쪽, 1 오른쪽) 걷는 옷들의 소매 끝 t 중 가장 손 쪽 — 그 너머 피부는 걷기 전에도 드러나 있었다
+        readonly float[] cover = { float.MinValue, float.MinValue };
+        // 손목 대리 본 스케일(감사 P2), 쪽마다: 내림 = 손 본 스케일, 걷음 = 대리 본으로 웨이트를 옮긴 첫 옷의 바인드 포즈 손 스케일(아래팔 기준)
+        readonly Vector3[] downScale = { Vector3.one, Vector3.one };
+        readonly Vector3?[] upScale = new Vector3?[2];
+        readonly string[] upFrom = new string[2];
+
+        /// <summary>대리 본 스케일 곡선(FX의 Down·Up) — Run 뒤에 부르는 쪽이 SleeveRollPbFx로 넣는다. 스케일이 1인 아바타는 비어 있다</summary>
+        internal readonly List<(Transform proxy, Vector3 down, Vector3 up)> proxyScales = new List<(Transform, Vector3, Vector3)>();
+
+        /// <summary>
+        /// 손가락 그림자 본(감사 P3) — 대리 본 밑, 진짜 손가락 본마다 하나(아바타 전체, 옷 여럿이 같이). 내림 = 진짜 손가락 회전 복사(Constraint GlobalWeight 1),
+        /// 걷음 = 그 본을 처음 쓴 옷의 바인드 포즈 자세(GlobalWeight 0 + 쉬는 회전, 위치·스케일이 지금과 다를 때만 Transform 곡선). Run 뒤에 SleeveRollPbFx가 넣는다
+        /// </summary>
+        internal sealed class FingerShadow
+        {
+            public Transform shadow, bone;
+            public bool left;
+            public string from;   // 걷음 자세를 정한 옷
+            public Quaternion upRot;
+            public Vector3 downPos, upPos, downScale, upScale;
+            public bool PosCurve => !Near(downPos, upPos, 1e-5f);
+            public bool ScaleCurve => !Near(downScale, upScale, 1e-4f);
+        }
+        internal readonly List<FingerShadow> fingerShadows = new List<FingerShadow>();
+        readonly Dictionary<Transform, FingerShadow> fingerShadowOf = new Dictionary<Transform, FingerShadow>();
+        readonly HashSet<(string, bool, Transform)> fingerWarned = new HashSet<(string, bool, Transform)>();
+
+        /// <summary>
+        /// 따라가기 그림자(0.1.3-beta4) — 아래팔에 대해 움직이는 본(PhysBone 서브트리·그걸 소스로 한 Constraint 본, SleeveRollPb.MovingBones)마다 그쪽 아래팔 밑에 하나(옷 여럿이 같이).
+        /// VRC Parent Constraint 소스 = 그 본: 내림(GlobalWeight 1) = 그 본과 월드 일치(원래대로 흔들림), 걷음(0) = 아래팔 기준 바인드 관계(쉬는 값)에 고정 — 걷힌 정점이 아래팔 웨이트처럼 따라간다
+        /// </summary>
+        internal sealed class FollowShadow
+        {
+            public Transform shadow, bone;
+            public bool left;
+            public string from;   // 쉬는 값을 정한 옷
+            public Quaternion upRot;
+            public Vector3 upPos, scale;
+        }
+        internal readonly List<FollowShadow> followShadows = new List<FollowShadow>();
+        readonly Dictionary<(Transform, bool), FollowShadow> followOf = new Dictionary<(Transform, bool), FollowShadow>();
+        readonly HashSet<(string, bool, Transform)> followWarned = new HashSet<(string, bool, Transform)>();
 
         public SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets,
             Dictionary<Transform, Transform> boneMap = null, HashSet<Transform> known = null)
@@ -73,6 +116,9 @@ namespace Pyrite9.Sleeve
         {
             BuildAll(comps);
             DropUnusedProxies();
+            if (pb != null) ProxyScaleCurves();
+            LogFingerShadows();
+            LogFollowShadows();
             return pb;
         }
 
@@ -100,8 +146,121 @@ namespace Pyrite9.Sleeve
                 if (i < jobs.Count - 1) rolled[j.cloth] = RolledVertices(j.mesh);
             }
             SortPhysBones(jobs);
+            // 소매가 덮던 구간의 끝(쪽마다, 걷는 옷 중 가장 긴 소매) — 되돌리기는 그 밑을 숨기던 셰이프만 되돌린다
+            foreach (var j in jobs)
+                foreach (var r in j.reports)
+                    if (SrSide.On(j.c, r.left) && r.ok) cover[r.left ? 0 : 1] = Mathf.Max(cover[r.left ? 0 : 1], r.sleeveEnd);
             foreach (var j in jobs) Finish(j);
-            if (previewMeshes == null) pb.Reparent();
+            if (previewMeshes == null)
+            {
+                ScaleProxies();   // 체인을 대리 본 밑으로 옮기기 전에 — SetParent가 체인의 월드 스케일을 지킨다
+                pb.Reparent();
+                Follow(jobs);     // 대리 본·손가락 그림자·체인 그림자로 옮긴 뒤의 본 목록에서 — 그것들은 아래팔 밑이라 겹치지 않는다
+            }
+        }
+
+        // 따라가기 그림자(0.1.3-beta4): 걷히는 정점에 웨이트가 있는, 아래팔에 대해 움직이는 본 → 그 웨이트만 아래팔 밑 그림자로. 실제 빌드만, 대리 본 설정과 무관
+        void Follow(List<Job> jobs)
+        {
+            HashSet<Transform> moving = null;
+            foreach (var j in jobs)
+                foreach (var r in j.reports)
+                {
+                    if (j.mesh == null || !SrSide.On(j.c, r.left) || !r.ok || r.roll == null) continue;
+                    if (moving == null) moving = SleeveRollPb.MovingBones(root, animator);
+                    if (moving.Count == 0) return;
+                    FollowSide(j, r, moving);
+                }
+        }
+
+        void FollowSide(Job j, SleeveRollShape.SideReport r, HashSet<Transform> moving)
+        {
+            var lower = animator.GetBoneTransform(SrSide.Lower(r.left));
+            var hand = animator.GetBoneTransform(SrSide.Hand(r.left));
+            if (lower == null) return;
+            var bones = j.cloth.bones;   // 지금 본 — Rebind·그림자 교체 뒤
+            var bp = j.mesh.bindposes;
+            var cand = new bool[bones.Length];
+            bool any = false;
+            for (int i = 0; i < bones.Length && i < bp.Length; i++)
+                any |= cand[i] = bones[i] != null && moving.Contains(bones[i]) && !bones[i].IsChildOf(lower);
+            if (!any) return;
+            var hit = new bool[bones.Length];
+            any = false;
+            var per = j.mesh.GetBonesPerVertex();
+            var bw = j.mesh.GetAllBoneWeights();
+            int c = 0;
+            for (int v = 0; v < per.Length; v++)
+                for (int k = 0; k < per[v]; k++, c++)
+                    if (v < r.roll.Length && r.roll[v] > 0f && bw[c].weight > 0f && bw[c].boneIndex < cand.Length && cand[bw[c].boneIndex])
+                        any = hit[bw[c].boneIndex] = true;
+            if (!any) return;
+            // 아래팔 칸의 바인드 포즈(계산용 — BindLocalRotation과 같은 방식)
+            var ce = cache.Get(j.cloth);
+            if (!SleeveRollShape.LowerBind(ce.bones, ce.bindposes, lower, hand, out var bpLower, ce.boneMap)) return;
+            var slotTo = new Transform[bones.Length];
+            var names = new List<string>();
+            for (int i = 0; i < bones.Length; i++)
+            {
+                if (!hit[i]) continue;
+                slotTo[i] = FollowShadowFor(j.cloth.name, r.left, bones[i], lower, bpLower * bp[i].inverse);
+                names.Add(bones[i].name);
+            }
+            int moved = SleeveRollShape.MoveToFollow(j.cloth, j.mesh, r.roll, slotTo);
+            log.AppendLine($"  {j.cloth.name} {SrSide.Letter(r.left)}: {moved} rolled vertices follow the forearm off bones that move on their own ({string.Join(", ", names)})");
+        }
+
+        /// <summary>
+        /// 본 b의 따라가기 그림자 — 아바타에 쪽·본마다 하나. 쉬는 값 = L(아래팔 바인드 · b 바인드⁻¹)의 위치·회전, localScale = L 스케일. 다른 옷의 L이 다르면 처음 옷을 따르고 WARN
+        /// </summary>
+        Transform FollowShadowFor(string cloth, bool left, Transform b, Transform lower, Matrix4x4 m)
+        {
+            var upRot = m.rotation;
+            Vector3 upPos = m.GetColumn(3);
+            var scale = Snap(m.lossyScale);
+            if (followOf.TryGetValue((b, left), out var fs))
+            {
+                float deg = Quaternion.Angle(fs.upRot, upRot);
+                float meters = Vector3.Distance(fs.upPos, upPos) * lower.lossyScale.x;
+                if ((deg > SleeveRollPb.MaxAngle || meters > SleeveRollPb.MaxMeters || !Near(fs.scale, scale, 1e-3f)) && followWarned.Add((cloth, left, b)))
+                    log.AppendLine($"WARN {cloth} {SrSide.Letter(left)}: its bind pose holds {b.name} {deg:0.#}° and {meters * 1000f:0.#} mm off {fs.from}'s, scale {Fmt(scale)} vs {Fmt(fs.scale)} — the follow shadow follows {fs.from}, the rolled cuff of {cloth} may sit off");
+                return fs.shadow;
+            }
+            var t = new GameObject(UniqueChild(lower, "SleeveRoll_Follow_" + b.name)).transform;
+            t.SetParent(lower, false);
+            t.SetPositionAndRotation(b.position, b.rotation);   // 내림(기본 상태) 자리
+            t.localScale = scale;
+            var pc = t.gameObject.AddComponent<VRC.SDK3.Dynamics.Constraint.Components.VRCParentConstraint>();
+            pc.Sources.Add(new VRC.Dynamics.VRCConstraintSource(b, 1f));
+            pc.PositionAtRest = upPos;
+            pc.RotationAtRest = upRot.eulerAngles;
+            pc.AffectsPositionX = pc.AffectsPositionY = pc.AffectsPositionZ = true;
+            pc.AffectsRotationX = pc.AffectsRotationY = pc.AffectsRotationZ = true;
+            pc.GlobalWeight = 1f;
+            pc.Locked = true;
+            pc.IsActive = true;
+            fs = new FollowShadow { shadow = t, bone = b, left = left, from = cloth, upRot = upRot, upPos = upPos, scale = scale };
+            followOf[(b, left)] = fs;
+            followShadows.Add(fs);
+            return t;
+        }
+
+        // 같은 이름 형제가 있으면(다른 옷의 같은 이름 본) 뒤에 번호 — FX 경로가 겹치지 않게
+        static string UniqueChild(Transform parent, string name)
+        {
+            if (parent.Find(name) == null) return name;
+            for (int n = 2; ; n++)
+                if (parent.Find($"{name}_{n}") == null) return $"{name}_{n}";
+        }
+
+        void LogFollowShadows()
+        {
+            foreach (bool left in SrSide.Both)
+            {
+                var mine = followShadows.Where(f => f.left == left).ToList();
+                if (mine.Count == 0) continue;
+                log.AppendLine($"  follow shadows {SrSide.Letter(left)}: {mine.Count} ({string.Join(", ", mine.Select(f => $"{f.shadow.name} ← {f.bone.name}"))})");
+            }
         }
 
         // PhysBone 소매(10-33). 셰이프를 다 만든 뒤, 웨이트를 옮기기 전 — 걷을 수 없는 쪽은 여기서 실패로 돌린다
@@ -138,6 +297,8 @@ namespace Pyrite9.Sleeve
                 if (garments.Count == 0) { log.AppendLine($"WARN {c.name}: no garment picked — this Sleeve Roll does nothing"); continue; }
                 foreach (var cloth in garments)
                 {
+                    // 다른 아바타의 렌더러(컴포넌트를 복사해 붙인 경우 등) — 빌드 사본 밖 오브젝트라 메시를 바꾸면 씬이 바뀐다. 인스펙터도 미리 경고한다
+                    if (!cloth.transform.IsChildOf(root.transform)) { log.AppendLine($"WARN {cloth.name}: not inside this avatar — skipped"); continue; }
                     if (cloth.sharedMesh == null) { log.AppendLine($"WARN {cloth.name}: no mesh — skipped"); continue; }
                     if (jobs.Any(j => j.cloth == cloth)) { log.AppendLine($"WARN {cloth.name}: picked in two Sleeve Rolls — the first one's settings are used"); continue; }
                     jobs.Add(new Job { c = c, cloth = cloth, radius = SleeveRollShape.SleeveRadius(cloth, animator, cache) });
@@ -177,6 +338,9 @@ namespace Pyrite9.Sleeve
                 gs.ok = r.ok; gs.rolledTo = r.rolledTo; gs.moved = r.movedVertices; gs.message = r.message;
                 gs.stopped = r.left ? stoppedL : stoppedR;
                 if (!r.ok) log.AppendLine($"WARN {j.cloth.name} {side}: {r.message}");
+                // 걷긴 했지만 피부가 늦게 시작해 조금만 — 실패와 같은 안내(인스펙터 안내 표의 "has forearm skin only from")
+                else if (r.skinShort)
+                    log.AppendLine($"WARN {j.cloth.name} {side}: the body mesh has forearm skin only from t={r.skinFrom:F2} — rolled only to t={r.rolledTo:F2}; use a body mesh with the whole forearm to roll it further");
             }
         }
 
@@ -242,10 +406,198 @@ namespace Pyrite9.Sleeve
                 return;
             }
             var proxy = SleeveRollDriver.Proxy(lower, hand, rest, SrSide.ProxyName(r.left));
-            int moved = SleeveRollShape.Rebind(j.cloth, j.mesh, hand, proxy, r.roll, ce, pb.Keep);
+            FingerSlots(j, r, hand, proxy, ce, out var slotTo, out var slotBind);
+            int moved = SleeveRollShape.Rebind(j.cloth, j.mesh, hand, proxy, r.roll, ce, pb.Keep, slotTo, slotBind);
             (r.left ? j.g.left : j.g.right).rebound = moved;
             log.AppendLine($"  {j.cloth.name} {side}: wrist proxy {proxy.name}, rebound {moved} vertices");
+            if (moved > 0 && SleeveRollShape.BindLocalScale(ce, lower, hand, out var k)) NoteUpScale(j.cloth.name, r.left, Snap(k));
         }
+
+        // 걷은 동안의 대리 본 스케일은 쪽마다 하나 — 그쪽 첫 옷의 것을 쓰고, 바인드 포즈 손 스케일이 다른 옷은 걷은 소맷단이 어긋날 수 있다
+        void NoteUpScale(string cloth, bool left, Vector3 k)
+        {
+            int i = left ? 0 : 1;
+            if (upScale[i] == null) { upScale[i] = k; upFrom[i] = cloth; return; }
+            var first = upScale[i].Value;
+            if (Mathf.Abs(k.x - first.x) > 1e-3f || Mathf.Abs(k.y - first.y) > 1e-3f || Mathf.Abs(k.z - first.z) > 1e-3f)
+                log.AppendLine($"WARN {cloth} {SrSide.Letter(left)}: its bind pose scales the hand by {Fmt(k)}, {upFrom[i]} by {Fmt(first)} — the wrist proxy follows {upFrom[i]}, the rolled cuff of {cloth} may sit off");
+        }
+
+        /// <summary>
+        /// 걷히는 웨이트가 갈 손가락 그림자(감사 P3). 옷의 실제 본 중 손의 엄격한 자손이고, 걷히는 정점에 0.01 이상 실리고(BonesOnRolled와 같은 문턱),
+        /// 유지하는 PhysBone 체인 본이 아닌 본마다 — 손 쪽으로 올라가며 처음 만나는 휴머노이드 손가락 본(자기 포함)의 그림자가 칸이다.
+        /// 그런 조상이 없는 본(손바닥 쪽 본, ScaleProxy, MA가 남긴 의상 손, 제약 사본, 손가락이 매핑 안 된 아바타)은 지금처럼 대리 본으로.
+        /// 칸의 바인드 포즈 = 그 손가락의 실제 바인드 포즈 — 손가락 밑 본이 합쳐질 때도 그 손가락 것(바인드 자세에선 정확). 해당 본이 없으면 둘 다 null(Rebind가 전과 같음)
+        /// </summary>
+        void FingerSlots(Job j, SleeveRollShape.SideReport r, Transform hand, Transform proxy, SleeveRollShape.Cache.Entry ce, out Transform[] slotTo, out Matrix4x4[] slotBind)
+        {
+            slotTo = null; slotBind = null;
+            if (r.roll == null) return;
+            var fingers = Fingers(r.left);
+            if (fingers.Count == 0) return;
+            var bones = j.cloth.bones;   // 지금 본 — 다른 쪽 Rebind가 붙인 칸까지(웨이트 인덱스가 이것을 가리킨다)
+            var bp = j.mesh.bindposes;
+            var onRolled = new bool[bones.Length];
+            var per = j.mesh.GetBonesPerVertex();
+            var bw = j.mesh.GetAllBoneWeights();
+            int c = 0;
+            for (int v = 0; v < per.Length; v++)
+                for (int k = 0; k < per[v]; k++, c++)
+                    if (v < r.roll.Length && r.roll[v] > 0f && bw[c].weight >= 0.01f && bw[c].boneIndex < onRolled.Length) onRolled[bw[c].boneIndex] = true;
+            // 대리 본 칸의 바인드 포즈(Rebind와 같은 값) — 맨 위 손가락 그림자의 걷음 자세는 이것 기준
+            if (!SleeveRollShape.LowerBind(ce.bones, ce.bindposes, hand, null, out var bpHand, ce.boneMap)) return;
+            for (int i = 0; i < bones.Length && i < bp.Length; i++)
+            {
+                var b = bones[i];
+                if (b == null || b == hand || !onRolled[i] || !b.IsChildOf(hand) || pb.Keep.Contains(b)) continue;
+                Transform f = null;
+                for (var t = b; t != null && t != hand; t = t.parent)
+                    if (fingers.Contains(t)) { f = t; break; }
+                if (f == null || !FingerBind(bones, bp, f, out var bpF)) continue;
+                var s = FingerShadowFor(j.cloth.name, r.left, f, hand, proxy, bones, bp, bpHand);
+                if (s == null) continue;
+                if (slotTo == null) { slotTo = new Transform[bones.Length]; slotBind = new Matrix4x4[bones.Length]; }
+                slotTo[i] = s;
+                slotBind[i] = bpF;
+            }
+        }
+
+        /// <summary>휴머노이드 손가락 본(그쪽 손 엄지·검지·중지·약지·소지 × Proximal·Intermediate·Distal)</summary>
+        HashSet<Transform> Fingers(bool left)
+        {
+            var set = new HashSet<Transform>();
+            int from = (int)(left ? HumanBodyBones.LeftThumbProximal : HumanBodyBones.RightThumbProximal);
+            for (int k = 0; k < 15; k++)
+            {
+                var t = animator.GetBoneTransform((HumanBodyBones)(from + k));
+                if (t != null) set.Add(t);
+            }
+            return set;
+        }
+
+        /// <summary>이 옷의 x 바인드 포즈(실제 본 기준) — 본 목록에 있으면 그것, 없으면 x 밑 첫 본에서 유도(LowerBind와 같은 식, 지금 자세 = 바인드 가정)</summary>
+        static bool FingerBind(Transform[] bones, Matrix4x4[] bp, Transform x, out Matrix4x4 m)
+        {
+            m = default;
+            int i = System.Array.IndexOf(bones, x);
+            if (i >= 0 && i < bp.Length) { m = bp[i]; return true; }
+            for (int k = 0; k < bones.Length && k < bp.Length; k++)
+                if (bones[k] != null && bones[k] != x && bones[k].IsChildOf(x))
+                {
+                    m = x.worldToLocalMatrix * bones[k].localToWorldMatrix * bp[k];
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>
+        /// 본 x의 손가락 그림자 — 아바타에 본 하나당 하나. 부모가 손이면 대리 본 밑, 아니면 부모의 그림자 밑(사이 본은 웨이트가 없어도 만든다).
+        /// 내림 = 진짜 본의 지금 로컬 값 + 회전 복사, 걷음 = (부모 칸 바인드 · x 바인드⁻¹)의 회전·위치·스케일 — 그 본을 처음 쓴 옷 것. 다른 옷의 값이 다르면 WARN
+        /// </summary>
+        Transform FingerShadowFor(string cloth, bool left, Transform x, Transform hand, Transform proxy, Transform[] bones, Matrix4x4[] bp, Matrix4x4 bpHand)
+        {
+            Transform parent;
+            Matrix4x4 bpParent;
+            if (x.parent == hand) { parent = proxy; bpParent = bpHand; }   // 대리 본 칸의 바인드 포즈 = 손(계산용, Rebind와 같음)
+            else
+            {
+                parent = FingerShadowFor(cloth, left, x.parent, hand, proxy, bones, bp, bpHand);
+                if (parent == null || !FingerBind(bones, bp, x.parent, out bpParent)) return null;
+            }
+            if (!FingerBind(bones, bp, x, out var bpX)) return null;
+            var m = bpParent * bpX.inverse;
+            var upRot = m.rotation;
+            var upScale = m.lossyScale;
+            Vector3 upPos = m.GetColumn(3);
+            if (fingerShadowOf.TryGetValue(x, out var fs))
+            {
+                float deg = Quaternion.Angle(fs.upRot, upRot);
+                float meters = Vector3.Distance(fs.upPos, upPos) * x.parent.lossyScale.x;
+                if ((deg > SleeveRollPb.MaxAngle || meters > SleeveRollPb.MaxMeters || !Near(fs.upScale, upScale, 1e-3f)) && fingerWarned.Add((cloth, left, x)))
+                    log.AppendLine($"WARN {cloth} {SrSide.Letter(left)}: its bind pose holds {x.name} {deg:0.#}° and {meters * 1000f:0.#} mm off {fs.from}'s, scale {Fmt(upScale)} vs {Fmt(fs.upScale)} — the finger shadow follows {fs.from}, the rolled cuff of {cloth} may sit off");
+                return fs.shadow;
+            }
+            var s = SleeveRollPb.Shadow(x, parent, upRot);
+            fs = new FingerShadow { shadow = s, bone = x, left = left, from = cloth, upRot = upRot, upPos = upPos, upScale = upScale, downPos = x.localPosition, downScale = x.localScale };
+            fingerShadowOf[x] = fs;
+            fingerShadows.Add(fs);
+            return s;
+        }
+
+        void LogFingerShadows()
+        {
+            foreach (bool left in SrSide.Both)
+            {
+                var mine = fingerShadows.Where(f => f.left == left).ToList();
+                if (mine.Count == 0) continue;
+                log.AppendLine($"  {SrSide.ProxyName(left)}: {mine.Count} finger shadow bones ({string.Join(", ", mine.Select(f => f.bone.name))})");
+                foreach (var f in mine.Where(f => f.PosCurve || f.ScaleCurve))
+                    log.AppendLine($"  {f.shadow.name}: position {FmtP(f.downPos)} scale {Fmt(f.downScale)} while down, position {FmtP(f.upPos)} scale {Fmt(f.upScale)} while rolled");
+            }
+        }
+
+        static string FmtP(Vector3 v) => $"({v.x:0.#####}, {v.y:0.#####}, {v.z:0.#####})";
+
+        /// <summary>
+        /// 손 크기를 본 스케일로 바꾼 아바타(감사 P2): 내린 동안 대리 본 스케일 = 손 본 스케일(옮긴 정점·체인이 손과 똑같이). 체인을 대리 본 밑으로 옮기기 전에 넣는다.
+        /// 스케일이 1이면 아무것도 안 한다 — 출력이 전과 같다
+        /// </summary>
+        void ScaleProxies()
+        {
+            foreach (bool left in SrSide.Both)
+            {
+                var lower = animator.GetBoneTransform(SrSide.Lower(left));
+                var hand = animator.GetBoneTransform(SrSide.Hand(left));
+                var proxy = lower != null ? lower.Find(SrSide.ProxyName(left)) : null;
+                if (proxy == null || hand == null) continue;
+                var s = HandScale(lower, hand);
+                downScale[left ? 0 : 1] = s;
+                if (s != Vector3.one) proxy.localScale = s;
+            }
+        }
+
+        /// <summary>
+        /// 남은 대리 본마다 FX 곡선 값 — 내림 = 손 본 스케일, 걷음 = 바인드 포즈 손 스케일(걷은 모양은 바인드 포즈에서 아래팔 기준으로 계산했다).
+        /// 웨이트를 옮긴 옷이 없고 체인만 옮긴 쪽은 그 체인을 건 옷의 바인드 포즈로, 그것도 없으면 걷음 = 내림. 둘이 같으면 곡선이 필요 없다
+        /// </summary>
+        void ProxyScaleCurves()
+        {
+            foreach (bool left in SrSide.Both)
+            {
+                int i = left ? 0 : 1;
+                var lower = animator.GetBoneTransform(SrSide.Lower(left));
+                var hand = animator.GetBoneTransform(SrSide.Hand(left));
+                var proxy = lower != null ? lower.Find(SrSide.ProxyName(left)) : null;
+                if (proxy == null || hand == null) continue;
+                var s = downScale[i];
+                var k = upScale[i];
+                if (k == null)
+                {
+                    var chain = pb.Chains.FirstOrDefault(c => c.left == left && c.root != null && c.root.parent == proxy && c.cloth != null);
+                    if (chain != null && SleeveRollShape.BindLocalScale(cache.Get(chain.cloth), lower, hand, out var kc)) k = Snap(kc);
+                }
+                var up = k ?? s;
+                if (s == Vector3.one && up == Vector3.one) continue;
+                log.AppendLine($"  {proxy.name}: hand bone scale {Fmt(s)} — proxy scale {Fmt(s)} while down, {Fmt(up)} while rolled");
+                if (!Near(s, up, 1e-4f)) proxyScales.Add((proxy, s, up));
+            }
+        }
+
+        /// <summary>손 본의 아래팔 기준 스케일 — 손에서 아래팔 앞까지 부모 사슬 localScale의 성분별 곱. 1에서 1e-4 안이거나 손이 아래팔 밑이 아니면 정확히 1</summary>
+        static Vector3 HandScale(Transform lower, Transform hand)
+        {
+            if (!hand.IsChildOf(lower)) return Vector3.one;
+            var s = Vector3.one;
+            for (var t = hand; t != lower; t = t.parent) s = Vector3.Scale(s, t.localScale);
+            return Snap(s);
+        }
+
+        // FBX가 남긴 0.9999999 같은 값은 정확히 1로 — 스케일 1인 아바타의 출력이 바뀌지 않게
+        static Vector3 Snap(Vector3 s) => Near(s, Vector3.one, 1e-4f) ? Vector3.one : s;
+
+        static bool Near(Vector3 a, Vector3 b, float eps) => Mathf.Abs(a.x - b.x) <= eps && Mathf.Abs(a.y - b.y) <= eps && Mathf.Abs(a.z - b.z) <= eps;
+
+        static string Fmt(Vector3 v) => $"({v.x:0.###}, {v.y:0.###}, {v.z:0.###})";
 
         // 몸 숨김 되돌리기(D7·D10) — 걷힌 팔뚝을 숨기던 셰이프를 거꾸로. 경계는 천이 움직이기 시작하는 자리(덜 걷힌 소매 밑)
         void AddUnhide(Job j, SkinnedMeshRenderer body, bool left)
@@ -261,11 +613,16 @@ namespace Pyrite9.Sleeve
             Mesh previewCopy = null;
             if (previewMeshes != null) previewMeshes.TryGetValue(body, out previewCopy);
             if ((previewCopy != null ? previewCopy : body.sharedMesh).GetBlendShapeIndex(name) >= 0) return; // 다른 SleeveRoll이 이미 넣음
-            var d = SleeveRollShape.UnhideDelta(body, animator, left, tCut, cache, out int nv, out string shapes);
-            if (d == null) return;
+            var d = SleeveRollShape.UnhideDelta(body, animator, left, tCut, cover[left ? 0 : 1], cache, out int nv, out string shapes, out string spared);
+            if (d == null)
+            {
+                if (spared.Length > 0) log.AppendLine($"  {body.name} {SrSide.Letter(left)}: nothing to restore — [{spared}] left as set (not under the sleeve)");
+                return;
+            }
             BodyCopy(body, previewCopy).AddBlendShapeFrame(name, 100f, d, null, null);
             (left ? j.g.left : j.g.right).unhide += nv;
-            log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name} restores {nv} vertices hidden by [{shapes}]");
+            log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name} restores {nv} vertices hidden by [{shapes}]" +
+                           (spared.Length > 0 ? $"; [{spared}] left as set (not under the sleeve)" : ""));
         }
 
         // 셰이프를 넣을 몸 메시 사본 — 처음 넣을 때 만든다. 미리 보기는 렌더러를 안 건드린다
@@ -285,7 +642,7 @@ namespace Pyrite9.Sleeve
             return copy;
         }
 
-        /// <summary>몸 숨김 되돌리기(D7)를 걸까 — 숨김 경계 너머로 걷거나(경계에서 안 멈춤), 걷힌 동안 되살리기를 켰을 때(D10)</summary>
+        /// <summary>몸 숨김 되돌리기(D7)를 걸까 — 'shrink 해제' 체크 하나(D16). 끄면 shrink를 두고 경계에서 멈춘다(StopAtHidden)</summary>
         public static bool Unhides(SleeveRoll c) => c.unhideWhenRolled;
 
         /// <summary>피부를 잴 메시 — 지정한 몸 메시, 아니면 고른 옷(어느 Sleeve Roll이든)을 뺀 스킨드 메시 전부. 자동일 땐 꺼 둔 오브젝트는 뺀다(꺼진 옷 변형을 피부로 재면 소매가 부푼다)</summary>
@@ -310,7 +667,8 @@ namespace Pyrite9.Sleeve
             }
         }
 
-        // 꺼 둔 쪽 이름의 셰이프가 옷에 원래 있으면 빼고 다시 만든다(블렌드셰이프 하나만 지우는 API가 없다). Build가 꺼 둔 쪽을 안 넣으니 보통은 바로 돌아간다
+        // 그쪽 이름의 셰이프를 빼고 다시 만든다(블렌드셰이프 하나만 지우는 API가 없다) — 꺼 둔 쪽 이름이 옷에 원래 있을 때, 그리고 PhysBone 판정에서 실패로 돌린 쪽(SortPhysBones).
+        // Build가 꺼 둔 쪽을 안 넣으니 꺼 둔 쪽은 보통 바로 돌아간다
         static void RemoveShape(Mesh mesh, bool left)
         {
             var name = SrSide.ShapeName(left);

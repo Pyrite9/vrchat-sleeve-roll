@@ -13,10 +13,11 @@ namespace Pyrite9.Sleeve
     /// <summary>
     /// 빌드 시 SleeveRoll마다: 대상 옷 메시 사본에 SleeveUp_L/R을 계산해 넣고(SleeveRollShape), 걷히는 정점의 손 웨이트를
     /// 손목 대리 본 SleeveRoll_Wrist_L/R(아래팔 자식, 손 회전을 따르는 VRC Rotation Constraint)으로 옮긴다(D6).
-    /// MA 뒤(의상 아마추어가 합쳐진 다음 — 옷 본이 아바타 본이어야 한다), AAO 앞(블렌드셰이프·본 정리 전).
+    /// MA 뒤(의상 아마추어가 합쳐진 다음 — MA가 합치지 않고 남긴 의상 본은 Snapshot의 짝으로 아바타 본처럼 계산한다), AAO 앞(블렌드셰이프·본 정리 전).
     /// 구동(FX·메뉴·대리 본 오브젝트)은 MA 앞 Generating에서 만들어 MA가 병합·경로 추적·메뉴 설치를 맡는다 — 셰이프는 그 뒤에 생기지만 이름이 정해져 있다.
     /// 빌드 로그는 Logs/Pyrite9_SleeveRoll_build.txt, 인스펙터 '마지막 빌드'는 SrBuildRecord.
-    /// 파일: 이 파일(패스·로그·기록) · SleeveRollDriver(FX·메뉴·대리 본) · SleeveRollBake(셰이프·웨이트·되살리기) · SleeveRollShape(계산)
+    /// 파일: 이 파일(패스·로그·기록) · SleeveRollDriver(FX·메뉴·대리 본) · SleeveRollBake(셰이프·웨이트·되살리기) · SleeveRollShape(계산) ·
+    /// SleeveRollPb(PhysBone 소매 판정·그림자 본) · SleeveRollPbFx(그림자 본 FX 곡선) · SleeveRollPreview(미리 보기)
     /// </summary>
     public class SleeveRollPlugin : Plugin<SleeveRollPlugin>
     {
@@ -24,7 +25,7 @@ namespace Pyrite9.Sleeve
         public override string DisplayName => "Pyrite9 Sleeve Roll";
 
         public const string ProxyLeft = "SleeveRoll_Wrist_L", ProxyRight = "SleeveRoll_Wrist_R";
-        /// <summary>메뉴 '걷어 두기' — 동기화 Bool. 이름을 바꾸지 않아(MA internal 아님) 컴포넌트가 여럿이어도 하나</summary>
+        /// <summary>메뉴 토글('소매 걷기')이 모는 파라미터 — 동기화 Bool. 이름을 바꾸지 않아(MA internal 아님) 컴포넌트가 여럿이어도 하나</summary>
         public const string HoldParameter = "Pyrite9/SleeveRoll/Hold";
 
         protected override void Configure()
@@ -66,13 +67,18 @@ namespace Pyrite9.Sleeve
                 else
                 {
                     rec.built = true;
-                    var pb = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets, state.boneMap, state.known).Run(comps);
-                    if (pb != null && pb.Chains.Count > 0) SleeveRollPbFx.Add(ctx, pb.Chains, log);
+                    var bake = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets, state.boneMap, state.known);
+                    var pb = bake.Run(comps);
+                    // FX 컨텍스트는 넣을 게 있을 때만 — 그림자도 대리 본 스케일도 손가락·따라가기 그림자도 없는 아바타는 컨트롤러가 그대로 남는다
+                    if (pb != null && (pb.Chains.Count > 0 || bake.proxyScales.Count > 0 || bake.fingerShadows.Count > 0 || bake.followShadows.Count > 0))
+                        SleeveRollPbFx.Add(ctx, pb.Chains, bake.proxyScales, bake.fingerShadows, bake.followShadows, log);
                 }
             }
             catch (System.Exception e)
             {
                 log.AppendLine("EXCEPTION " + e);
+                // 빌드 기록·인스펙터엔 WARN 줄만 간다 — 없으면 '경고: 없음'으로 보인다. 앞서 만든 셰이프는 남고 그 뒤 단계(대리 본·되돌리기·PhysBone 그림자)는 빠진 상태다
+                log.AppendLine("WARN Sleeve Roll stopped on an internal error — the sleeves may be left half set up (see the EXCEPTION line in the Console)");
                 Debug.LogException(e);
             }
             if (rec.built) CheckMenu(ctx, state, rec, log);

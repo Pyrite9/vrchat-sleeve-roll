@@ -18,11 +18,12 @@ namespace Pyrite9.Sleeve
                 if (skin == null || skin == cloth || skin.sharedMesh == null) continue;
                 var se = cache.Get(skin);
                 // 안쪽 옷이 아래팔 본 없이 그 자손(트위스트 등)에만 묶여 있으면(10-75) 바인드 포즈를 유도하고 웨이트도 자손째로 —
-                // 아래팔이 본 목록에 있는 메시는 전과 같다
+                // 아래팔이 본 목록에 있는 메시는 아래팔·손 + 아래팔 자손 중 손 밑이 아닌 본(트위스트 등 — 0.1.3-beta4 문제 A: 팔뚝 피부가
+                // 트위스트 본에 더 실린 몸은 아래팔·손만 보면 손목 근처만 표본이 되어 거의 안 걷혔다)
                 bool direct = Array.IndexOf(se.bones, f.lower) >= 0;
                 if (!LowerBind(se.bones, se.bindposes, f.lower, f.hand, out var bpS, se.boneMap)) continue;
                 var toCloth = f.laToMesh * bpS;
-                var sw = se.Weights(f.lower, f.hand, !direct);
+                var sw = direct ? se.ArmWeights(f.lower, f.hand) : se.Weights(f.lower, f.hand, true);
                 Vector3[] sv = null;   // 팔뚝 웨이트가 있는 메시만 정점을 읽는다(머리카락·신발 등은 건너뜀)
                 for (int i = 0; i < sw.Length; i++)
                 {

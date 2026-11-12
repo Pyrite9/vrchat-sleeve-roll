@@ -9,24 +9,50 @@ namespace Pyrite9.Sleeve
         /// <summary>
         /// 몸 숨김 되돌리기(D7): 옷이 덮는다고 MA Shape Changer 등이 켜 둔 셰이프(예: Salt LowerArm_OFF=100)가 걷힌 팔뚝까지 숨긴다.
         /// 지금 렌더러에 걸린 셰이프 값들의 합쳐진 정점 이동을, 팔뚝의 tCut 이후(걷은 소맷단 밑 ~ 손목 너머) 정점만 거꾸로 되돌리는 셰이프를 돌려준다.
-        /// tCut 경계는 걷힌 천 뭉치 밑이라 늘어난 면이 가려진다. 되돌릴 게 없으면 null
+        /// tCut 경계는 걷힌 천 뭉치 밑이라 늘어난 면이 가려진다. 되돌릴 게 없으면 null.
+        /// 되돌리는 건 소매 밑을 숨기던 셰이프만이다 — 셰이프마다, 그 셰이프가 움직이는 팔·손 정점의 과반이 소매가 덮던 구간(t ≤ coverEnd, 걷는 옷들의 소매 끝)에
+        /// 있어야 한다. 손톱 모양·손 크기처럼 소매 밖을 움직이는 셰이프, 장갑 밑 손을 숨기는 셰이프는 그대로 둔다(spared) — 전엔 합을 통째로 되돌려
+        /// 걷는 동안 손톱이 기본 모양으로 돌아갔다(감사 0.1.3 P1). 빠지는 셰이프가 없으면 전과 같은 값이다
         /// </summary>
-        internal static Vector3[] UnhideDelta(SkinnedMeshRenderer body, Animator animator, bool left, float tCut, Cache cache,
-            out int vertices, out string shapes)
+        internal static Vector3[] UnhideDelta(SkinnedMeshRenderer body, Animator animator, bool left, float tCut, float coverEnd, Cache cache,
+            out int vertices, out string shapes, out string spared)
         {
-            vertices = 0; shapes = "";
+            vertices = 0; shapes = ""; spared = "";
             var h = ActiveHide(body, animator, left, cache);
             if (h == null) return null;
-            var outD = new Vector3[h.sum.Length];
+            var sum = h.sum; var hidden = h.hidden; shapes = h.shapes;
+            List<HidePart> drop = null;
+            foreach (var p in h.parts)
+            {
+                int moved = 0, under = 0;
+                for (int v = 0; v < p.delta.Length; v++)
+                {
+                    if (!h.arm[v] || p.delta[v].magnitude < h.eps) continue;
+                    moved++;
+                    if (h.t[v] <= coverEnd) under++;
+                }
+                if (under * 2 < moved) (drop ?? (drop = new List<HidePart>())).Add(p);
+            }
+            if (drop != null)
+            {
+                // 뺀 셰이프의 이동을 합에서 덜어 낸다 — 그 셰이프만 움직인 정점은 정확히 0이 되어 숨김에서 빠진다
+                sum = (Vector3[])h.sum.Clone();
+                foreach (var p in drop)
+                    for (int v = 0; v < sum.Length; v++) sum[v] -= p.delta[v];
+                hidden = new bool[sum.Length];
+                for (int v = 0; v < sum.Length; v++) hidden[v] = h.arm[v] && sum[v].magnitude >= h.eps;
+                var kept = new List<string>(); var gone = new List<string>();
+                foreach (var p in h.parts) (drop.Contains(p) ? gone : kept).Add(p.name);
+                shapes = string.Join(", ", kept); spared = string.Join(", ", gone);
+            }
+            var outD = new Vector3[sum.Length];
             for (int v = 0; v < outD.Length; v++)
             {
-                if (!h.hidden[v] || h.t[v] < tCut) continue;
-                outD[v] = -h.sum[v];
+                if (!hidden[v] || h.t[v] < tCut) continue;
+                outD[v] = -sum[v];
                 vertices++;
             }
-            if (vertices == 0) return null;
-            shapes = h.shapes;
-            return outD;
+            return vertices == 0 ? null : outD;
         }
 
         /// <summary>
@@ -56,6 +82,15 @@ namespace Pyrite9.Sleeve
             public float[] t;
             public bool[] hidden, arm;
             public string shapes;
+            public float eps;          // 이만큼은 움직여야 숨김으로 본다(메시 단위)
+            /// <summary>이쪽 팔·손 정점을 움직인 셰이프 하나씩(shapes에 이름이 나가는 것) — 되돌리기가 소매 밑인지 따로 본다</summary>
+            public readonly List<HidePart> parts = new List<HidePart>();
+        }
+
+        internal sealed class HidePart
+        {
+            public string name;        // 로그용 '이름=값'
+            public Vector3[] delta;    // 지금 값에서의 정점 이동(읽기만)
         }
 
         // 지금 렌더러에 걸린 셰이프 값들의 합쳐진 정점 이동 + 팔뚝 좌표. 팔뚝에서 움직인 정점이 없으면 null.
@@ -94,6 +129,7 @@ namespace Pyrite9.Sleeve
                     h.arm[v] = wArm[v] >= 0.5f && (d - ax * (t * L)).magnitude < L * 0.6f;
                 }
                 eps[s] = L * 0.002f;
+                h.eps = eps[s];
                 hs[s] = h;
             }
             if (hs[0] == null && hs[1] == null) return hs;
@@ -114,8 +150,14 @@ namespace Pyrite9.Sleeve
                     for (int s = 0; s < 2; s++)
                         if (hs[s] != null && !moved[s]) moved[s] = hs[s].arm[v] && dv[v].magnitude >= eps[s];
                 }
+                HidePart part = null;
                 for (int s = 0; s < 2; s++)
-                    if (moved[s]) names[s].Add(mesh.GetBlendShapeName(i) + "=" + w.ToString("0")); // 팔뚝을 움직인 셰이프만 로그에
+                {
+                    if (!moved[s]) continue;
+                    names[s].Add(mesh.GetBlendShapeName(i) + "=" + w.ToString("0")); // 팔뚝을 움직인 셰이프만 로그에
+                    if (part == null) part = new HidePart { name = names[s][names[s].Count - 1], delta = (Vector3[])dv.Clone() };
+                    hs[s].parts.Add(part);
+                }
             }
             for (int s = 0; s < 2; s++)
             {

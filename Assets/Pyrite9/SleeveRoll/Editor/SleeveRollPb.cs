@@ -18,7 +18,7 @@ namespace Pyrite9.Sleeve
     sealed class SleeveRollPb
     {
         /// <summary>Largest difference between a bone's prefab pose and the bind pose that still counts as the same (the rolled shape is computed from the bind pose)</summary>
-        const float MaxAngle = 0.5f, MaxMeters = 0.0005f;
+        internal const float MaxAngle = 0.5f, MaxMeters = 0.0005f;
         /// <summary>A PhysBone under the upper arm holding cloth this far down the forearm (0 elbow ~ 1 wrist) is a sleeve we cannot roll</summary>
         const float ReachT = 0.5f;
 
@@ -86,6 +86,55 @@ namespace Pyrite9.Sleeve
             if (!own.Contains(t) && simulated.Contains(t)) return;
             into.Add(t);
             for (int i = 0; i < t.childCount; i++) Reach(t.GetChild(i), own, simulated, into);
+        }
+
+        /// <summary>
+        /// Bones that move on their own, apart from the arm (0.1.3-beta4): the whole subtree of every enabled PhysBone's root, wherever it sits (Ignore Transforms
+        /// leave bones unsimulated but they still ride on the chain), then — until nothing more is added — every bone a VRC or Unity constraint moves from a source
+        /// in the set, with its subtree. Humanoid bones are never in it, and a humanoid bone below a root cuts its subtree off (the body moves it, not the PhysBone).
+        /// The caller drops each side's forearm subtree (kept chains, wrist proxy and finger shadows handle that).
+        /// </summary>
+        internal static HashSet<Transform> MovingBones(GameObject root, Animator animator)
+        {
+            var humanoid = new HashSet<Transform>();
+            foreach (HumanBodyBones b in System.Enum.GetValues(typeof(HumanBodyBones)))
+            {
+                if (b == HumanBodyBones.LastBone) continue;
+                var t = animator.GetBoneTransform(b);
+                if (t != null) humanoid.Add(t);
+            }
+            var set = new HashSet<Transform>();
+            foreach (var pb in root.GetComponentsInChildren<VRCPhysBone>(true))
+                if (pb.enabled) Subtree(pb.rootTransform != null ? pb.rootTransform : pb.transform, humanoid, set, true);
+            if (set.Count == 0) return set;
+            var cons = new List<(Transform target, List<Transform> sources)>();
+            foreach (var c in root.GetComponentsInChildren<VRC.Dynamics.VRCConstraintBase>(true))
+            {
+                var src = new List<Transform>();
+                for (int i = 0; i < c.Sources.Count; i++) if (c.Sources[i].SourceTransform != null) src.Add(c.Sources[i].SourceTransform);
+                cons.Add((c.TargetTransform != null ? c.TargetTransform : c.transform, src));
+            }
+            foreach (var c in root.GetComponentsInChildren<UnityEngine.Animations.IConstraint>(true))
+            {
+                var src = new List<Transform>();
+                for (int i = 0; i < c.sourceCount; i++) { var s = c.GetSource(i).sourceTransform; if (s != null) src.Add(s); }
+                cons.Add((((Component)c).transform, src));
+            }
+            for (bool grew = true; grew;)
+            {
+                grew = false;
+                foreach (var (t, src) in cons)
+                    if (t != null && !set.Contains(t) && !humanoid.Contains(t) && src.Any(set.Contains)) { Subtree(t, humanoid, set, true); grew = true; }
+            }
+            return set;
+        }
+
+        static void Subtree(Transform t, HashSet<Transform> humanoid, HashSet<Transform> into, bool top)
+        {
+            bool body = humanoid.Contains(t);
+            if (body && !top) return;
+            if (!body) into.Add(t);
+            for (int i = 0; i < t.childCount; i++) Subtree(t.GetChild(i), humanoid, into, false);
         }
 
         static void Affected(Transform t, HashSet<Transform> ignored, List<Transform> into)
@@ -323,7 +372,7 @@ namespace Pyrite9.Sleeve
             return d;
         }
 
-        static Transform Shadow(Transform bone, Transform parent, Quaternion rest)
+        internal static Transform Shadow(Transform bone, Transform parent, Quaternion rest)
         {
             var t = new GameObject("SleeveRoll_Shadow_" + bone.name).transform;
             t.SetParent(parent, false);

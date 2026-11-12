@@ -51,6 +51,8 @@ namespace Pyrite9.Sleeve
                 if (animator == null || !animator.isHuman) continue;
                 var lowerL = animator.GetBoneTransform(SrSide.Lower(true));
                 var lowerR = animator.GetBoneTransform(SrSide.Lower(false));
+                var handL = animator.GetBoneTransform(SrSide.Hand(true));
+                var handR = animator.GetBoneTransform(SrSide.Hand(false));
                 // a body mesh that comes with an outfit is still on the outfit's bones here — read it through the merge mapping like the build
                 var merge = MergeMap(context, root);
                 foreach (var r in context.GetComponentsInChildren<SkinnedMeshRenderer>(root, true))
@@ -58,12 +60,11 @@ namespace Pyrite9.Sleeve
                     if (set.Contains(r)) continue;
                     var mesh = context.Observe(r, x => x.sharedMesh);
                     if (mesh == null || mesh.blendShapeCount == 0) continue;
-                    foreach (var b in r.bones)
-                    {
-                        if (b == null) continue;
-                        var to = merge.TryGetValue(b, out var m) ? m : b;
-                        if (to == lowerL || to == lowerR) { set.Add(r); break; }
-                    }
+                    // the same forearm slots as the build's FX curves (SleeveRollDriver): the forearm bone, or its child bones when the mesh has none
+                    var bones = r.bones;
+                    SleeveRollShape.ForearmSlots(bones, lowerL, handL, merge, out bool onArm);
+                    if (!onArm) SleeveRollShape.ForearmSlots(bones, lowerR, handR, merge, out onArm);
+                    if (onArm) set.Add(r);
                 }
                 groups.Add(RenderGroup.For(set));
             }
