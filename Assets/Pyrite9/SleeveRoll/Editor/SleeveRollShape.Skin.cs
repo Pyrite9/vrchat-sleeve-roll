@@ -24,14 +24,27 @@ namespace Pyrite9.Sleeve
                 if (!LowerBind(se.bones, se.bindposes, f.lower, f.hand, out var bpS, se.boneMap)) continue;
                 var toCloth = f.laToMesh * bpS;
                 var sw = direct ? se.ArmWeights(f.lower, f.hand) : se.Weights(f.lower, f.hand, true);
-                Vector3[] sv = null;   // 팔뚝 웨이트가 있는 메시만 정점을 읽는다(머리카락·신발 등은 건너뜀)
+                // 팔뚝 웨이트가 있는 메시만 정점을 읽는다(머리카락·신발 등은 건너뜀).
+                // 걷힌 안쪽 옷은 그 걷힌 정점(입은 모양 + 걷기). 나머지는 입은 모양과 기본 정점 중 정점마다 축에서 먼 쪽(0.1.3-beta6) —
+                // 팔 두께 셰이프는 입은 모양이 바깥, 옷 밑 숨김 셰이프는 걷는 동안 되돌려지므로(D7) 기본이 바깥. 셰이프가 안 움직인 정점은 전과 같다
+                Vector3[] sv = null, sb = null;
                 for (int i = 0; i < sw.Length; i++)
                 {
                     if (sw[i] <= 0.3f) continue;
                     if (sv == null)
-                        sv = rolled != null && rolled.TryGetValue(skin, out var rv) && rv != null && rv.Length == se.mesh.vertexCount
-                            ? rv : se.Vertices;
+                    {
+                        if (rolled != null && rolled.TryGetValue(skin, out var rv) && rv != null && rv.Length == se.mesh.vertexCount) sv = rv;
+                        else { sv = se.Vertices; sb = ReferenceEquals(sv, se.BaseVertices) ? null : se.BaseVertices; }
+                    }
+                    // 걷힌 안쪽 옷의 접혀 숨은 정점(NaN, SleeveRollBake.RolledVertices) — 겉면이 아니다. 축 가까이 모여 있어 둘레 각도가 부동소수 잡음에 흔들리고,
+                    // 재면 바깥 옷 피부 격자의 아무 칸에나 얇은 피부(구멍)를 찍는다(CampusKnit 카디건 미리 보기↔빌드 2.6 mm)
+                    if (float.IsNaN(sv[i].x)) continue;
                     f.Cyl(toCloth.MultiplyPoint3x4(sv[i]), out var t, out var r, out var a);
+                    if (sb != null && (sb[i].x != sv[i].x || sb[i].y != sv[i].y || sb[i].z != sv[i].z))
+                    {
+                        f.Cyl(toCloth.MultiplyPoint3x4(sb[i]), out var tb, out var rb, out var ab);
+                        if (rb > r) { t = tb; r = rb; a = ab; }
+                    }
                     int ti = TBin(t), ai = ABin(a);
                     if (r > R[ti, ai]) R[ti, ai] = r;
                     occupied[ti] = true;

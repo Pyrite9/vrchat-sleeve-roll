@@ -28,6 +28,7 @@ namespace Pyrite9.Sleeve
             {
                 int i0 = tris[c], i1 = tris[c + 1], i2 = tris[c + 2];
                 if (!inSleeve[i0] && !inSleeve[i1] && !inSleeve[i2]) continue;
+                if (f.hid != null && (f.hid[i0] || f.hid[i1] || f.hid[i2])) continue;   // 셰이프로 접혀 숨은 면은 겹이 아니다(0.1.3-beta6)
                 KnowCyl(f, verts, i0, ct, ca, known); KnowCyl(f, verts, i1, ct, ca, known); KnowCyl(f, verts, i2, ct, ca, known);
                 float ta = ct[i0], tb = ct[i1], tc = ct[i2], aa = ca[i0], ab = ca[i1], ac = ca[i2];
                 // 각도는 첫 꼭짓점 기준으로 펴서 범위를 잡는다(−π/π 경계)

@@ -117,7 +117,7 @@ namespace Pyrite9.Sleeve
                 bool anyArm = false;   // 팔뚝 웨이트가 없는 메시(머리·신발 등)는 팔뚝 정점이 없다 → 셰이프를 안 읽고 null
                 for (int v = 0; v < n && !anyArm; v++) anyArm = wArm[v] >= 0.5f;
                 if (!anyArm) continue;
-                var verts = en.Vertices;
+                var verts = en.BaseVertices;   // 셰이프 이동은 아래에서 따로 잰다 — 기본 정점 기준(입은 모양 아님)
                 var e = f.e; var ax = f.ax; float L = f.L;
                 var h = new HideInfo { t = new float[n], hidden = new bool[n], arm = new bool[n] };
                 for (int v = 0; v < n; v++)
@@ -176,8 +176,10 @@ namespace Pyrite9.Sleeve
             return hs;
         }
 
-        // 셰이프 값 w(0~100)일 때의 정점 이동 — 프레임이 여러 개면 사이를 선형 보간. a·b는 프레임 읽기용 작업 배열(정점 수)
-        static bool FrameDelta(Mesh mesh, int shape, float w, Vector3[] outV, Vector3[] a, Vector3[] b)
+        // 셰이프 값 w(0~100)일 때의 정점 이동 — 프레임이 여러 개면 사이를 선형 보간. a·b는 프레임 읽기용 작업 배열(정점 수).
+        // outN이 있으면 노멀 이동도 같은 보간으로(an·bn 작업 배열) — 입은 모양(Cache.Entry.Wear)
+        static bool FrameDelta(Mesh mesh, int shape, float w, Vector3[] outV, Vector3[] a, Vector3[] b,
+            Vector3[] outN = null, Vector3[] an = null, Vector3[] bn = null)
         {
             int fc = mesh.GetBlendShapeFrameCount(shape);
             if (fc == 0) return false;
@@ -185,17 +187,19 @@ namespace Pyrite9.Sleeve
             int f1 = 0;
             while (f1 < fc - 1 && mesh.GetBlendShapeFrameWeight(shape, f1) < w) f1++;
             float w1 = mesh.GetBlendShapeFrameWeight(shape, f1);
-            mesh.GetBlendShapeFrameVertices(shape, f1, b, null, null);
+            mesh.GetBlendShapeFrameVertices(shape, f1, b, outN != null ? bn : null, null);
             if (f1 == 0)
             {
                 float k = w1 != 0 ? w / w1 : 0f;
                 for (int v = 0; v < n; v++) outV[v] = b[v] * k;
+                if (outN != null) for (int v = 0; v < n; v++) outN[v] = bn[v] * k;
                 return true;
             }
             float w0 = mesh.GetBlendShapeFrameWeight(shape, f1 - 1);
-            mesh.GetBlendShapeFrameVertices(shape, f1 - 1, a, null, null);
+            mesh.GetBlendShapeFrameVertices(shape, f1 - 1, a, outN != null ? an : null, null);
             float s = Mathf.Approximately(w1, w0) ? 1f : (w - w0) / (w1 - w0);
             for (int v = 0; v < n; v++) outV[v] = Vector3.LerpUnclamped(a[v], b[v], s);
+            if (outN != null) for (int v = 0; v < n; v++) outN[v] = Vector3.LerpUnclamped(an[v], bn[v], s);
             return true;
         }
     }

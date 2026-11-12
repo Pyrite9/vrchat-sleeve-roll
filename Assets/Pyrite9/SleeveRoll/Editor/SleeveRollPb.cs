@@ -94,7 +94,7 @@ namespace Pyrite9.Sleeve
         /// in the set, with its subtree. Humanoid bones are never in it, and a humanoid bone below a root cuts its subtree off (the body moves it, not the PhysBone).
         /// The caller drops each side's forearm subtree (kept chains, wrist proxy and finger shadows handle that).
         /// </summary>
-        internal static HashSet<Transform> MovingBones(GameObject root, Animator animator)
+        internal static HashSet<Transform> MovingBones(GameObject root, Animator animator, System.Func<Transform, Transform> map = null)
         {
             var humanoid = new HashSet<Transform>();
             foreach (HumanBodyBones b in System.Enum.GetValues(typeof(HumanBodyBones)))
@@ -103,6 +103,14 @@ namespace Pyrite9.Sleeve
                 var t = animator.GetBoneTransform(b);
                 if (t != null) humanoid.Add(t);
             }
+            // an outfit bone that MA merges into (or keeps for) a humanoid bone is the body too — the Preview (before MA) and the build see one set (0.1.3-beta5)
+            if (map != null)
+                foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                    if (!humanoid.Contains(t))
+                    {
+                        var m = map(t);
+                        if (m != null && m != t && humanoid.Contains(m)) humanoid.Add(t);
+                    }
             var set = new HashSet<Transform>();
             foreach (var pb in root.GetComponentsInChildren<VRCPhysBone>(true))
                 if (pb.enabled) Subtree(pb.rootTransform != null ? pb.rootTransform : pb.transform, humanoid, set, true);
@@ -385,8 +393,10 @@ namespace Pyrite9.Sleeve
 
         string Path(Transform t) => AnimationUtility.CalculateTransformPath(t, root.transform);
 
-        // "E|path" PhysBone enabled, "T|path" transform — in any playable layer of the avatar
-        HashSet<string> AnimatedPaths()
+        HashSet<string> AnimatedPaths() => AnimatedPaths(root);
+
+        // "E|path" PhysBone enabled, "T|path" transform, "S|path|blendShape.name" a shape weight (0.1.3-beta6) — in any playable layer of the avatar
+        internal static HashSet<string> AnimatedPaths(GameObject root)
         {
             var set = new HashSet<string>();
             var d = root.GetComponent<VRCAvatarDescriptor>();
@@ -402,6 +412,7 @@ namespace Pyrite9.Sleeve
                     {
                         if (b.type == typeof(Transform)) set.Add("T|" + b.path);
                         else if (b.type == typeof(VRCPhysBone) && b.propertyName == "m_Enabled") set.Add("E|" + b.path);
+                        else if (b.type == typeof(SkinnedMeshRenderer) && b.propertyName.StartsWith("blendShape.")) set.Add("S|" + b.path + "|" + b.propertyName);
                     }
                 }
             }

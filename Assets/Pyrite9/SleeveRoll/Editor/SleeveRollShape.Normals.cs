@@ -18,7 +18,7 @@ namespace Pyrite9.Sleeve
 
         static NormalBase PrepareNormals(Cache.Entry ce)
         {
-            var nb = new NormalBase { v0 = ce.Vertices, n0 = ce.mesh.normals };
+            var nb = new NormalBase { v0 = ce.Vertices, n0 = ce.Normals };   // 입은 모양 기준 — 셰이프 노멀 델타는 그 위에 더해진다(0.1.3-beta6)
             if (!nb.HasNormals) return nb;   // 노멀이 없으면 노멀 델타는 0
             nb.key = WeldKeys(nb.v0, null, out nb.count);
             nb.tris = ce.Triangles;

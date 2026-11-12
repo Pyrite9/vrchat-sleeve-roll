@@ -13,6 +13,10 @@ namespace Pyrite9.Sleeve
             public Transform upper; public Vector3 shoulder;   // 위팔 본이 메시에 없으면 upper = null — 위팔 당김만 건너뛴다
             public Transform lower, hand;
             public Matrix4x4 laToMesh;   // 아래팔 본 공간 → 메시 공간(바인드 포즈 역)
+            /// <summary>셰이프 계산의 아래팔·위팔 웨이트(Cache.Entry.RollWeights, Side가 채움). null이면 읽는 쪽이 Weights(…, true)로</summary>
+            public float[] wc, wu;
+            /// <summary>셰이프로 접혀 숨은 소매 정점(Side의 Folded, 0.1.3-beta6) — 겹 두께가 그 면을 겹으로 읽지 않게. null = 없음</summary>
+            public bool[] hid;
             public Vector3 e, ax, u, v;
             public float L, mPerUnit;
 
@@ -77,13 +81,58 @@ namespace Pyrite9.Sleeve
                 public HideInfo[] hide;          // ActiveHide 좌·우, null = 아직 안 구함
                 public SkinnedMeshRenderer shapes;   // 셰이프 값을 읽을 렌더러 — 빌드는 그 렌더러, 미리 보기는 프록시
                 public Dictionary<Transform, Transform> boneMap;   // 의상 본 → 아바타 본 짝(Cache.boneMap) — 미리 보기는 그때 읽은 것, 빌드는 Generating에서 찍어 둔 것
-                Vector3[] vertices;
+                Vector3[] vertices, normals, baseVertices;
+                List<(int index, string name, float weight)> worn;
                 readonly Dictionary<(Transform, Transform, int), float[]> weights = new Dictionary<(Transform, Transform, int), float[]>();
 
                 int[] triangles;
 
-                /// <summary>읽기만 — 고칠 땐 복사본을</summary>
-                public Vector3[] Vertices => vertices ?? (vertices = mesh.vertices);
+                /// <summary>
+                /// 입은 모양(0.1.3-beta6) — 기본 정점 + 렌더러에 지금 걸린 셰이프 값 × 그 값의 프레임 보간 델타(Sleeve Roll 자신의 셰이프는 빼고).
+                /// 걷기 계산의 입력. 벤더 '겉옷용' 축소 셰이프처럼 켜 둔 셰이프가 소매를 옮긴 옷도 보이는 모양으로 걷는다(10-92). 셰이프가 다 0이면 기본 정점 그대로(같은 배열). 읽기만
+                /// </summary>
+                public Vector3[] Vertices { get { if (vertices == null) Wear(); return vertices; } }
+                /// <summary>입은 모양의 노멀(기본 + 셰이프 노멀 델타, 정규화 전 — 렌더러가 더하는 그대로). 노멀 없는 메시는 빈 배열. 읽기만</summary>
+                public Vector3[] Normals { get { if (vertices == null) Wear(); return normals; } }
+                /// <summary>메시 기본 정점(셰이프 0) — 셰이프 이동을 따로 재는 몸 숨김(Hide)·겹 순서용 반지름. 읽기만</summary>
+                public Vector3[] BaseVertices => baseVertices ?? (baseVertices = mesh.vertices);
+                /// <summary>입은 모양에 더한 셰이프(메시 인덱스·이름·값) — 정점이나 노멀을 움직인 것만</summary>
+                public List<(int index, string name, float weight)> Worn { get { if (vertices == null) Wear(); return worn; } }
+
+                void Wear()
+                {
+                    var v = BaseVertices;
+                    var nrm = mesh.normals;
+                    worn = new List<(int, string, float)>();
+                    int nv = v.Length, count = mesh.blendShapeCount;
+                    if (shapes != null && count > 0)
+                    {
+                        bool hasN = nrm.Length == nv;
+                        Vector3[] dv = null, fa = null, fb = null, dn = null, na = null, nb = null;
+                        for (int i = 0; i < count; i++)
+                        {
+                            var name = mesh.GetBlendShapeName(i);
+                            if (OwnShape(name)) continue;
+                            float w = shapes.GetBlendShapeWeight(i);
+                            if (Mathf.Abs(w) < 0.01f) continue;   // Hide와 같은 문턱
+                            if (dv == null)
+                            {
+                                dv = new Vector3[nv]; fa = new Vector3[nv]; fb = new Vector3[nv];
+                                if (hasN) { dn = new Vector3[nv]; na = new Vector3[nv]; nb = new Vector3[nv]; }
+                            }
+                            if (!FrameDelta(mesh, i, w, dv, fa, fb, dn, na, nb)) continue;
+                            bool any = false;
+                            for (int k = 0; k < nv && !any; k++) any = dv[k].x != 0f || dv[k].y != 0f || dv[k].z != 0f
+                                                                     || (hasN && (dn[k].x != 0f || dn[k].y != 0f || dn[k].z != 0f));
+                            if (!any) continue;
+                            if (ReferenceEquals(v, baseVertices)) { v = (Vector3[])v.Clone(); }
+                            for (int k = 0; k < nv; k++) v[k] += dv[k];
+                            if (hasN) for (int k = 0; k < nv; k++) nrm[k] += dn[k];
+                            worn.Add((i, name, w));
+                        }
+                    }
+                    vertices = v; normals = nrm;
+                }
 
                 /// <summary>삼각형 서브메시 전부를 이어 붙인 것(읽기만)</summary>
                 public int[] Triangles
@@ -130,6 +179,53 @@ namespace Pyrite9.Sleeve
                     return w;
                 }
 
+                readonly Dictionary<(Transform, Transform), (float[] wc, float[] wu)> rollWeights = new Dictionary<(Transform, Transform), (float[], float[])>();
+
+                /// <summary>
+                /// 셰이프 계산의 아래팔·위팔 웨이트(0.1.3-beta5). 걷힌 뒤 아래팔에 고정될 본(따라가기 그림자 대상 — moving 중 그쪽 아래팔 서브트리 밖)의
+                /// 웨이트를 아래팔 웨이트로 본다: wc(아래팔 서브트리)에 더하고, 그중 위팔 서브트리 본 몫은 wu에서 뺀다.
+                /// 아래팔 서브트리 웨이트가 0.01 넘는 정점(소매 멤버)만 — 아래팔 웨이트 없는 PB 자락은 그대로. 바뀌는 정점이 없으면 원래 배열 그대로(같은 객체)
+                /// </summary>
+                public void RollWeights(Transform lower, Transform upper, HashSet<Transform> moving, out float[] wc, out float[] wu)
+                {
+                    wc = Weights(lower, null, true);
+                    wu = upper != null ? Weights(upper, null, true) : null;
+                    if (moving == null || moving.Count == 0) return;
+                    if (rollWeights.TryGetValue((lower, upper), out var got)) { wc = got.wc; wu = got.wu; return; }
+                    var follow = new bool[bones.Length];
+                    var underUpper = new bool[bones.Length];
+                    bool any = false;
+                    for (int i = 0; i < bones.Length && i < rawBones.Length; i++)
+                    {
+                        if (bones[i] == null || rawBones[i] == null || !moving.Contains(rawBones[i])) continue;
+                        var x = Resolve(bones[i]);
+                        if (x.IsChildOf(lower)) continue;   // 아래팔 서브트리(자기 포함) — 유지 체인·대리 본·손가락 그림자 몫
+                        follow[i] = any = true;
+                        underUpper[i] = upper != null && x.IsChildOf(upper);
+                    }
+                    float[] nc = null, nu = null;
+                    if (any)
+                    {
+                        var per = mesh.GetBonesPerVertex();
+                        var bw = mesh.GetAllBoneWeights();
+                        int c = 0;
+                        for (int v = 0; v < per.Length; v++)
+                            for (int j = 0; j < per[v]; j++, c++)
+                            {
+                                var b = bw[c];
+                                if (b.weight <= 0f || b.boneIndex >= follow.Length || !follow[b.boneIndex] || wc[v] <= 0.01f) continue;
+                                if (nc == null) nc = (float[])wc.Clone();
+                                nc[v] += b.weight;
+                                if (!underUpper[b.boneIndex] || wu == null) continue;
+                                if (nu == null) nu = (float[])wu.Clone();
+                                nu[v] = Mathf.Max(0f, nu[v] - b.weight);
+                            }
+                    }
+                    if (nc != null) wc = nc;
+                    if (nu != null) wu = nu;
+                    rollWeights[(lower, upper)] = (wc, wu);
+                }
+
                 // 의상에만 있는 본(소맷단 흔들림 본 등)은 합쳐지면 아바타 본 밑에 들어간다 — 가장 가까운 대응 본으로 본다
                 Transform Resolve(Transform b)
                 {
@@ -151,6 +247,13 @@ namespace Pyrite9.Sleeve
             public Dictionary<Transform, Transform> boneMap;
             /// <summary>빌드만: 찍어 둘 때 있던 Transform 전부. 그 뒤에 생긴 본(MA ScaleProxy·중간 오브젝트)은 가장 가까운 조상의 대응으로 본다. null = 매핑만</summary>
             public HashSet<Transform> known;
+
+            HashSet<Transform> moving;
+            /// <summary>
+            /// 아래팔에 대해 움직이는 본(SleeveRollPb.MovingBones, 0.1.3-beta5) — 이 캐시에서 처음 물을 때 한 번 구해 셰이프 계산(RollWeights)과
+            /// 따라가기 그림자(SleeveRollBake.Follow)가 같은 집합을 쓴다. 빌드는 셰이프 전(그림자·체인 이동 전)에 구한다. 대응이 휴머노이드인 의상 본도 몸으로 본다(미리 보기 = 빌드)
+            /// </summary>
+            public HashSet<Transform> Moving(Animator animator) => moving ?? (moving = SleeveRollPb.MovingBones(animator.gameObject, animator, Map));
 
             /// <summary>계산에서 이 본을 어느 본으로 볼까 — 대응이 없으면 그대로</summary>
             public Transform Map(Transform b)
@@ -218,6 +321,10 @@ namespace Pyrite9.Sleeve
             }
             return map;
         }
+
+        /// <summary>Sleeve Roll이 넣는 셰이프(걷기·되돌리기) — 입은 모양에 넣지 않는다(이미 셰이프가 있는 옷, 미리 보기 프록시가 켠 값)</summary>
+        static bool OwnShape(string name) =>
+            name == ShapeLeft || name == ShapeRight || name == UnhideLeft || name == UnhideRight;
 
         // 같은 위치 정점(UV 이음새)을 한 번호로 묶는다. only: 이 정점들만(나머지는 −1), null이면 전부. count: 묶음 수
         static int[] WeldKeys(Vector3[] verts, bool[] only, out int count)

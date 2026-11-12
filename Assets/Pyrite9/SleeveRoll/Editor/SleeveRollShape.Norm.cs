@@ -61,6 +61,7 @@ namespace Pyrite9.Sleeve
             internal sealed class In
             {
                 public D3[] v0; public int[] tris; public double[] wL, wU;
+                public bool[] hid;   // 셰이프로 접혀 숨은 정점(0.1.3-beta6) — wL은 이미 0, 겹 두께만 그 면을 뺀다. null = 없음
                 public D3 e, sh, ax, u, v; public double L; public bool hasUpper;
                 public double[,] Rs, Rd;
                 public double tT, t0, ease, margin, snug, foldL, foldA, wLow, wHigh;
@@ -867,6 +868,7 @@ namespace Pyrite9.Sleeve
                 {
                     int f0 = tris[c], f1 = tris[c + 1], f2 = tris[c + 2];
                     if (!member[f0] && !member[f1] && !member[f2]) continue;
+                    if (d.hid != null && (d.hid[f0] || d.hid[f1] || d.hid[f2])) continue;
                     double a0v = ak[f0], a1v = ak[f1], a2v = ak[f2];
                     if (a1v - a0v > Math.PI) a1v -= 2.0 * Math.PI; else if (a0v - a1v > Math.PI) a1v += 2.0 * Math.PI;
                     if (a2v - a0v > Math.PI) a2v -= 2.0 * Math.PI; else if (a0v - a2v > Math.PI) a2v += 2.0 * Math.PI;
@@ -1358,8 +1360,8 @@ namespace Pyrite9.Sleeve
                 double k = f.mPerUnit;
                 var verts = ce.Vertices;
                 int nv = verts.Length;
-                var d = new In { v0 = new D3[nv], tris = ce.Triangles, wL = new double[nv], L = (double)f.L * k };
-                var wc = ce.Weights(f.lower, null, true);
+                var d = new In { v0 = new D3[nv], tris = ce.Triangles, wL = new double[nv], L = (double)f.L * k, hid = f.hid };
+                var wc = f.wc ?? ce.Weights(f.lower, null, true);   // 따라가기 대상 본 몫을 더한 것(0.1.3-beta5, Side가 채움)
                 for (int i = 0; i < nv; i++) { d.v0[i] = new D3(verts[i]) * k; d.wL[i] = wc[i]; }
                 d.e = new D3(f.e) * k; d.ax = new D3(f.ax); d.u = new D3(f.u); d.v = new D3(f.v);
                 d.tT = s.tTarget; d.t0 = s.t0; d.ease = s.easeLength; d.margin = s.margin; d.snug = s.snug;
@@ -1375,7 +1377,7 @@ namespace Pyrite9.Sleeve
                 if (d.hasUpper)
                 {
                     d.sh = new D3(f.shoulder) * k;
-                    var wu = ce.Weights(f.upper, null, true);
+                    var wu = f.wu ?? ce.Weights(f.upper, null, true);
                     d.wU = new double[nv];
                     for (int i = 0; i < nv; i++) d.wU[i] = wu[i];
                 }

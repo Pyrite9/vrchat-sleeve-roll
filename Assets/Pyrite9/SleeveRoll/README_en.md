@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-Version 0.1.3-beta4 (2026-11-12)
+Version 0.1.3-beta6 (2026-11-13)
 
 A sleeve-rolling gimmick for VRChat avatars. Drop the prefab into an avatar and pick the sleeved garment — when you build, the rolled-up sleeve is worked out from that garment's own mesh.
 Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package — the shape is made at build time from the garment you own.
@@ -138,6 +138,8 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 
 ## Changelog
 
+- **0.1.3-beta6** (2026-11-13): The rolled shape is now worked out from the garment as it is worn, with the shape keys that are turned on (for example a vendor shape that folds an inner shirt's sleeve away under a jacket). Before, such a sleeve rolled into a flat, broken cuff. A warning shows when an animation changes a shape key that moves the sleeve. Garments with every shape key at 0 build the same as 0.1.3-beta5.
+- **0.1.3-beta5** (2026-11-12): On the same outfits (a sleeve also weighted to bones that move on their own), the part of the cuff weighted to those bones now rolls up as far as the rest of the sleeve, instead of staying lower and hanging under the arm.
 - **0.1.3-beta4** (2026-11-12): Fixed the rolled cuff sagging or lifting when the arm moves, on outfits whose sleeve is also weighted to bones that move on their own (a PhysBone sleeve under the upper arm, or a bone a constraint makes follow one). While rolled, those vertices now follow the forearm; while down, they sway as before. Fixed sleeves barely rolling on bodies whose forearm skin is weighted mostly to a twist bone (for example Milltina). A body mesh with forearm skin only near the wrist (cut away under the outfit) now rolls the sleeve as far as that skin reaches and shows a warning, instead of failing.
 - **0.1.3-beta3** (2026-11-11): Fixed the rolled cuff swinging away from the arm when the wrist bends, on avatars whose clothes are weighted to copies of the hand bone placed under it (for example `Hand_L/Hand_L_Const/Hand_L`). The wrist proxy is now added for them too. Other outfits build the same as 0.1.3-beta2.
 - **0.1.3-beta2** (2026-11-10): Outfits whose sleeve is weighted only to bones under the forearm (a twist bone, or the original bones an outfit conversion tool leaves behind) instead of the forearm bone itself are now handled. When a side fails with `the garment is not weighted to the forearm bone` or `no sleeve vertices on the forearm`, or when the forearm had to be found from a bone under it, the build log now lists the bones the sleeve is weighted to (lines starting with `diag:`). The inspector's changelog now also shows test versions.

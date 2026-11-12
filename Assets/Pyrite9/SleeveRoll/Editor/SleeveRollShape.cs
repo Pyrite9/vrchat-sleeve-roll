@@ -45,6 +45,12 @@ namespace Pyrite9.Sleeve
             public string note;
             /// <summary>정점마다 걷히는 정도(0~1) — 손목 대리 본으로 웨이트를 옮길 정점 고르기</summary>
             public float[] roll;
+            /// <summary>입은 모양에 넣은 셰이프 중 이쪽 소매를 움직인 것('이름=값', 빌드 로그용) — 없으면 null(0.1.3-beta6)</summary>
+            public string worn;
+            /// <summary>셰이프로 접혀 피부 안에 숨은 소매 정점 수 — 걷기 계산에서 빼고 이웃을 따라 옮겼다(0.1.3-beta6)</summary>
+            public int folded;
+            /// <summary>그 접혀 숨은 정점(정점 수 길이, 없으면 null) — 바깥 옷이 이 옷을 피부로 잴 때 뺀다(SleeveRollBake.RolledVertices)</summary>
+            public bool[] hid;
         }
 
         const int NT = 66, NA = 24;      // 팔뚝 방향 칸(t −0.2 ~ 2.0) × 둘레 칸
@@ -126,6 +132,8 @@ namespace Pyrite9.Sleeve
             var err = GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap);
             if (err != null) { rep.message = err; rep.note = Diagnose(animator, left, cache, ce); return null; }
             rep.forearmMeters = f.L * f.mPerUnit;
+            // 걷힌 뒤 아래팔에 고정될 본(따라가기 그림자 대상)의 웨이트는 아래팔 웨이트로 — 그 정점도 다른 정점만큼 걷힌다(0.1.3-beta5)
+            ce.RollWeights(f.lower, f.upper, cache.Moving(animator), out f.wc, out f.wu);
             // 아래팔 본이 메시에 없어 자손 본에서 틀을 유도한 옷 — 로그에 남긴다(정규화 줄이 생기면 그 앞에 붙는다)
             // 소매 일부가 다른 본(위팔 밑 소매 본 등)에 묶여 일부만 걷혀도 성공으로 나올 수 있다 — 진단을 늘 같이 남긴다
             if (Array.IndexOf(ce.bones, f.lower) < 0)
@@ -142,6 +150,18 @@ namespace Pyrite9.Sleeve
             rep.rolledTo = s.tTarget;
             SmoothSkin(R);
 
+            // 입은 모양(0.1.3-beta6): 켜진 셰이프가 피부 안으로 접어 넣은 소매 정점은 걷기 계산에서 뺀다(소매 웨이트 0) — 걷은 뒤 이웃을 따라 숨은 채로 옮긴다
+            rep.worn = WornNote(ce, f);
+            var folded = Folded(ce, f, R, out rep.folded);
+            if (folded != null)
+            {
+                var wc = (float[])f.wc.Clone();
+                for (int i = 0; i < wc.Length; i++) if (folded[i]) wc[i] = 0f;
+                f.wc = wc;
+                f.hid = folded;
+                rep.hid = folded;
+            }
+
             var sleeve = ReadSleeve(ce, f, s, ref rep);
             if (sleeve == null) { rep.message = "no sleeve vertices on the forearm"; rep.note = Diagnose(animator, left, cache, ce); return null; }
             if (sleeve.end <= s.tTarget + 0.02f)
@@ -155,6 +175,7 @@ namespace Pyrite9.Sleeve
             // 정규화: 이동이 정확히 0이면 기존 경로 그대로. 움직인 소매는 정규화 경로만 탄다(SleeveRollShape.Norm.cs)
             var delta = Norm6.TryRoll(ce, f, R, s, ref rep, out var normDelta) ? normDelta : RollDeltas(ce, f, R, sleeve, s, ref rep);
             if (delta == null) return null;
+            if (folded != null) FollowFolded(ce, f, R, folded, delta, rep.roll);
             // 마지막 안전망(읽기만 — 계산은 안 바꾼다): 깨진 이동이 셰이프로 들어가면 인게임에서 메시가 터진다. 그쪽만 실패로
             var broken = Broken(ce.Vertices, delta, f);
             if (broken != null) { rep.message = broken; return null; }
@@ -171,6 +192,182 @@ namespace Pyrite9.Sleeve
             }
             rep.ok = true;
             return delta;
+        }
+
+        /// <summary>
+        /// 입은 모양에 넣은 셰이프 중 이쪽 소매(아래팔 웨이트 정점)를 움직인 것 — '이름=값'을 쉼표로(빌드 로그). 없으면 null(0.1.3-beta6)
+        /// </summary>
+        static string WornNote(Cache.Entry ce, in Forearm f)
+        {
+            var worn = ce.Worn;
+            if (worn.Count == 0) return null;
+            var mesh = ce.mesh;
+            int n = mesh.vertexCount;
+            var dv = new Vector3[n]; var fa = new Vector3[n]; var fb = new Vector3[n];
+            float eps = f.L * FoldedMove;
+            var names = new List<string>();
+            foreach (var (index, name, weight) in worn)
+            {
+                if (!FrameDelta(mesh, index, weight, dv, fa, fb)) continue;
+                for (int i = 0; i < n; i++)
+                    if (f.wc[i] > 0.01f && dv[i].magnitude >= eps) { names.Add(name + "=" + weight.ToString("0")); break; }
+            }
+            return names.Count > 0 ? string.Join(", ", names) : null;
+        }
+
+        /// <summary>
+        /// pick이 고른 셰이프 중 소매(어느 쪽이든 아래팔 서브트리 웨이트 정점)를 움직이는 것의 (이름, 지금 값) — 값이 0이어도 마지막 프레임으로 잰다.
+        /// 애니메이션이 바꾸는 셰이프 경고용(0.1.3-beta6). Sleeve Roll 자신의 셰이프는 뺀다
+        /// </summary>
+        internal static List<(string name, float weight)> SleeveShapes(Cache.Entry ce, Animator animator, Func<string, bool> pick)
+        {
+            var names = new List<(string name, float weight)>();
+            var mesh = ce.mesh;
+            int n = mesh.vertexCount;
+            Vector3[] dv = null, fa = null, fb = null;
+            float[][] w = new float[2][]; float[] eps = new float[2];
+            foreach (bool left in SrSide.Both)
+                if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap) == null)
+                { w[left ? 0 : 1] = ce.Weights(f.lower, null, true); eps[left ? 0 : 1] = f.L * FoldedMove; }
+            if (w[0] == null && w[1] == null) return names;
+            for (int i = 0; i < mesh.blendShapeCount; i++)
+            {
+                var name = mesh.GetBlendShapeName(i);
+                if (OwnShape(name) || !pick(name)) continue;
+                int fc = mesh.GetBlendShapeFrameCount(i);
+                if (fc == 0) continue;
+                if (dv == null) { dv = new Vector3[n]; fa = new Vector3[n]; fb = new Vector3[n]; }
+                if (!FrameDelta(mesh, i, mesh.GetBlendShapeFrameWeight(i, fc - 1), dv, fa, fb)) continue;
+                bool moves = false;
+                for (int s = 0; s < 2 && !moves; s++)
+                {
+                    if (w[s] == null) continue;
+                    for (int v = 0; v < n && !moves; v++) moves = w[s][v] > 0.01f && dv[v].magnitude >= eps[s];
+                }
+                if (moves) names.Add((name, ce.shapes.GetBlendShapeWeight(i)));
+            }
+            return names;
+        }
+
+        /// <summary>셰이프가 이만큼(팔뚝 길이 비율) 넘게 옮긴 정점만 셰이프가 움직인 것으로 본다 — 몸 숨김(Hide)과 같은 문턱</summary>
+        const float FoldedMove = 0.002f;
+
+        /// <summary>피부 반지름의 이 비율보다 축에 가까이 넣은 정점은 원래 자리와 상관없이 접혀 숨은 것으로 본다(몸에 붙는 소매를 접어 넣은 경우)</summary>
+        const float FoldedDeep = 0.5f;
+
+        /// <summary>
+        /// 셰이프로 접혀 숨은 소매 정점(0.1.3-beta6, 10-92): 소매 멤버 중 켜진 셰이프가 옮겼고(FoldedMove 넘게) 입은 자리가 피부 안인 것 —
+        /// 기본 모양에선 피부 밖이었거나(접어 넣음), 피부 반지름의 절반(FoldedDeep)보다 깊은 곳에 있거나. 벤더 '겉옷용' 축소 셰이프가 소매 원통을 한 점·가는 관으로 모아 숨긴 경우 —
+        /// 그대로 걷으면 피부 밖으로 밀려 판·띠·지느러미가 된다. 피부는 다듬은 격자(R). 피부 밖에 남은 정점(두께 셰이프)이나 원래 피부 안이던 정점을 조금 조인 셰이프는 전과 같이 걷는다. 없으면 null
+        /// </summary>
+        static bool[] Folded(Cache.Entry ce, in Forearm f, float[,] R, out int count)
+        {
+            count = 0;
+            var v = ce.Vertices; var b = ce.BaseVertices;
+            if (ReferenceEquals(v, b)) return null;
+            float eps = f.L * FoldedMove;
+            bool[] hid = null;
+            for (int i = 0; i < v.Length; i++)
+            {
+                if (f.wc[i] <= 0.01f || (v[i] - b[i]).magnitude < eps) continue;
+                f.Cyl(v[i], out var t, out var r, out var a);
+                float s = SkinAt(R, t, a);
+                if (r >= s) continue;
+                f.Cyl(b[i], out var tb, out var rb, out var ab);
+                if (r >= s * FoldedDeep && rb < SkinAt(R, tb, ab)) continue;
+                if (hid == null) hid = new bool[v.Length];
+                hid[i] = true;
+                count++;
+            }
+            return hid;
+        }
+
+        /// <summary>
+        /// 접혀 숨은 정점을 숨은 채로 옮긴다: 메시 연결(기본 정점으로 묶은 UV 이음새)을 따라, 이동이 정해진 이웃에게서 한 겹씩 받는다 —
+        /// 축 방향 이동(평균)과 축 거리 비율(이웃 걷은 반지름 합 ÷ 입은 반지름 합)만. 이동 벡터를 그대로 받으면 축 가까이 모인 정점이 이웃의 바깥 이동만큼 피부 밖으로 나온다(maid 커프 지느러미).
+        /// 그리고 입은 자리의 피부 대비 깊이(r ÷ 피부)를 넘지 않게 — 숨은 정점은 걷은 뒤에도 피부 안. 걷힘 정도도 받아 손목 대리 본으로 같이 옮겨진다
+        /// </summary>
+        static void FollowFolded(Cache.Entry ce, in Forearm f, float[,] R, bool[] hid, Vector3[] delta, float[] roll)
+        {
+            var key = WeldKeys(ce.BaseVertices, null, out int nk);
+            var worn = ce.Vertices;
+            var hk = new bool[nk];
+            for (int i = 0; i < hid.Length; i++) if (hid[i]) hk[key[i]] = true;
+            var kd = new Vector3[nk]; var kp = new Vector3[nk]; var kr = new float[nk]; var cnt = new int[nk];
+            for (int i = 0; i < key.Length; i++)
+            {
+                int k = key[i];
+                if (cnt[k] == 0 && hk[k]) kp[k] = worn[i];
+                if (hk[k]) { cnt[k] = -1; continue; }
+                kd[k] += delta[i]; kp[k] += worn[i]; kr[k] += roll != null && i < roll.Length ? roll[i] : 0f; cnt[k]++;
+            }
+            // 키마다 축 방향 이동(ks), 입은·걷은 축 거리(kw, kn) — 숨은 키는 받은 비율로 kn = kw × 비율
+            var ks = new float[nk]; var kw = new float[nk]; var kn = new float[nk];
+            var known = new bool[nk];
+            for (int k = 0; k < nk; k++)
+            {
+                if (cnt[k] <= 0) continue;
+                known[k] = true; kd[k] /= cnt[k]; kp[k] /= cnt[k]; kr[k] /= cnt[k];
+                ks[k] = Vector3.Dot(kd[k], f.ax);
+                f.Cyl(kp[k], out _, out kw[k], out _);
+                f.Cyl(kp[k] + kd[k], out _, out kn[k], out _);
+            }
+            var nb = new List<int>[nk];
+            var tris = ce.Triangles;
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+                for (int e = 0; e < 3; e++)
+                {
+                    int p = key[tris[i + e]], q = key[tris[i + (e + 1) % 3]];
+                    if (p == q || !(hk[p] || hk[q])) continue;
+                    if (hk[p]) { if (nb[p] == null) nb[p] = new List<int>(6); if (!nb[p].Contains(q)) nb[p].Add(q); }
+                    if (hk[q]) { if (nb[q] == null) nb[q] = new List<int>(6); if (!nb[q].Contains(p)) nb[q].Add(p); }
+                }
+            var layer = new List<int>();
+            var ls = new List<float>(); var lq = new List<float>(); var lr = new List<float>();
+            while (true)
+            {
+                layer.Clear(); ls.Clear(); lq.Clear(); lr.Clear();
+                for (int k = 0; k < nk; k++)
+                {
+                    if (!hk[k] || known[k] || nb[k] == null) continue;
+                    float ss = 0f, sw = 0f, sn = 0f, sr = 0f; int c = 0;
+                    foreach (int q in nb[k]) if (known[q]) { ss += ks[q]; sw += kw[q]; sn += kn[q]; sr += kr[q]; c++; }
+                    if (c == 0) continue;
+                    layer.Add(k); ls.Add(ss / c); lq.Add(sw > 1e-6f ? sn / sw : 1f); lr.Add(sr / c);
+                }
+                if (layer.Count == 0) break;
+                for (int j = 0; j < layer.Count; j++)
+                {
+                    int k = layer[j]; known[k] = true; ks[k] = ls[j]; kr[k] = lr[j];
+                    f.Cyl(kp[k], out _, out kw[k], out _);
+                    kn[k] = kw[k] * lq[j];
+                }
+            }
+            for (int i = 0; i < key.Length; i++)
+            {
+                int k = key[i];
+                if (!hk[k] || !known[k]) continue;
+                // 입은 자리 p = 축 위 점 + 축에서 떨어진 o. 걷은 자리 = 축 방향으로 ks, o는 비율만큼 — 피부 대비 깊이 이하로
+                var p = worn[i];
+                var d = p - f.e;
+                var o = d - f.ax * Vector3.Dot(d, f.ax);
+                float r = o.magnitude;
+                float scale = kw[k] > 1e-6f ? kn[k] / kw[k] : 1f;
+                var np = p + f.ax * ks[k] + o * (scale - 1f);
+                if (r > 1e-6f)
+                {
+                    f.Cyl(p, out var t0, out _, out var a0);
+                    f.Cyl(np, out var t1, out var r1, out var a1);
+                    float s0 = SkinAt(R, t0, a0), s1 = SkinAt(R, t1, a1);
+                    if (s0 > 1e-6f)
+                    {
+                        float cap = r / s0 * s1;
+                        if (r1 > cap) np -= o / r * (r1 - cap);
+                    }
+                }
+                delta[i] = np - p;
+                if (roll != null && i < roll.Length) roll[i] = kr[k];
+            }
         }
 
         /// <summary>
@@ -214,7 +411,7 @@ namespace Pyrite9.Sleeve
         static Sleeve ReadSleeve(Cache.Entry ce, in Forearm f, in Settings s, ref SideReport rep)
         {
             var verts = ce.Vertices;
-            var wc = ce.Weights(f.lower, null, true);
+            var wc = f.wc ?? ce.Weights(f.lower, null, true);
             var member = new bool[verts.Length];
             int n = 0;
             for (int i = 0; i < verts.Length; i++) if (wc[i] > 0.01f) { member[i] = true; n++; }
@@ -311,7 +508,7 @@ namespace Pyrite9.Sleeve
                 }
                 if (count > 0) ringLoose = sum / count;
             }
-            var cuffNormals = cuff != null ? ce.mesh.normals : null;
+            var cuffNormals = cuff != null ? ce.Normals : null;   // 입은 모양의 노멀(0.1.3-beta6)
             float foldL = s.foldLength / mPerUnit, foldA = s.foldAmplitude / mPerUnit;
             var delta = new Vector3[verts.Length];
             rep.roll = new float[verts.Length];
@@ -450,7 +647,7 @@ namespace Pyrite9.Sleeve
         static void PullUpperArm(Cache.Entry ce, in Forearm f, Vector3[] delta, float pull)
         {
             var verts = ce.Vertices;
-            var wu = ce.Weights(f.upper, null, true);
+            var wu = f.wu ?? ce.Weights(f.upper, null, true);
             var up = f.e - f.shoulder;
             float LU = up.magnitude;
             if (LU < 1e-6f) return;
@@ -477,7 +674,7 @@ namespace Pyrite9.Sleeve
             foreach (bool left in SrSide.Both)
             {
                 if (GetForearm(animator, left, ce.bones, ce.bindposes, out var f, ce.boneMap) != null) continue;
-                var verts = ce.Vertices;
+                var verts = ce.BaseVertices;   // 겹 순서는 옷 자체 모양으로 — 셰이프로 접어 숨긴 소매가 재기에서 빠지지 않게(0.1.3-beta6)
                 // 아래팔 본 없이 자손(트위스트 등)에만 묶인 옷은 자손째로(10-75) — 아래팔이 있으면 전과 같다
                 var w = ce.Weights(f.lower, null, Array.IndexOf(ce.bones, f.lower) < 0);
                 for (int i = 0; i < verts.Length; i++)

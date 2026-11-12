@@ -143,7 +143,7 @@ namespace Pyrite9.Sleeve
                 for (int k = 0; k < i; k++) j.skins.Add(jobs[k].cloth);
                 Shape(j);
                 // 가장 바깥 옷은 아무도 안 잰다
-                if (i < jobs.Count - 1) rolled[j.cloth] = RolledVertices(j.mesh);
+                if (i < jobs.Count - 1) rolled[j.cloth] = RolledVertices(cache.Get(j.cloth).Vertices, j.mesh, j.reports);
             }
             SortPhysBones(jobs);
             // 소매가 덮던 구간의 끝(쪽마다, 걷는 옷 중 가장 긴 소매) — 되돌리기는 그 밑을 숨기던 셰이프만 되돌린다
@@ -167,7 +167,7 @@ namespace Pyrite9.Sleeve
                 foreach (var r in j.reports)
                 {
                     if (j.mesh == null || !SrSide.On(j.c, r.left) || !r.ok || r.roll == null) continue;
-                    if (moving == null) moving = SleeveRollPb.MovingBones(root, animator);
+                    if (moving == null) moving = cache.Moving(animator);   // 셰이프 계산이 쓴 것과 같은 집합(셰이프 전에 구해 둠, 0.1.3-beta5)
                     if (moving.Count == 0) return;
                     FollowSide(j, r, moving);
                 }
@@ -332,7 +332,8 @@ namespace Pyrite9.Sleeve
                 // 옷에 원래 같은 이름 셰이프가 있던 경우만 실제로 지운다(Build는 꺼 둔 쪽을 안 넣는다)
                 if (!SrSide.On(c, r.left)) { RemoveShape(j.mesh, r.left); log.AppendLine($"  {j.cloth.name} {side}: off"); continue; }
                 log.AppendLine($"  {j.cloth.name} {side}: ok={r.ok} sleeve={r.clothVertices} moved={r.movedVertices} skin={r.skinVertices} " +
-                               $"forearm={r.forearmMeters:F3}m end={r.sleeveEnd:F2} r={r.clothRadiusMm:F1}mm skin={r.skinRadiusMm:F1}mm {r.message}");
+                               $"forearm={r.forearmMeters:F3}m end={r.sleeveEnd:F2} r={r.clothRadiusMm:F1}mm skin={r.skinRadiusMm:F1}mm" +
+                               (r.worn != null ? $" worn [{r.worn}]" + (r.folded > 0 ? $" folded={r.folded}" : "") : "") + $" {r.message}");
                 if (!string.IsNullOrEmpty(r.note)) log.AppendLine($"  {j.cloth.name} {side}: {r.note}");
                 var gs = r.left ? j.g.left : j.g.right;
                 gs.ok = r.ok; gs.rolledTo = r.rolledTo; gs.moved = r.movedVertices; gs.message = r.message;
@@ -342,6 +343,28 @@ namespace Pyrite9.Sleeve
                 else if (r.skinShort)
                     log.AppendLine($"WARN {j.cloth.name} {side}: the body mesh has forearm skin only from t={r.skinFrom:F2} — rolled only to t={r.rolledTo:F2}; use a body mesh with the whole forearm to roll it further");
             }
+            WarnAnimatedShapes(j);
+        }
+
+        HashSet<string> animatedPaths;
+
+        // 소매를 움직이는 셰이프를 아바타 애니메이션이 바꾸면 — 걷기는 빌드 때 값의 입은 모양으로 계산했다(0.1.3-beta6). 걷은 쪽이 있는 옷만.
+        // 빌드 때 값이 0이 아닌 셰이프는 WARN(입은 모양에 들어가 있다), 0인 셰이프는 일반 줄 — 벤더 메뉴 토글(꺼진 채 빌드)이 흔해 WARN이면 잡음.
+        // 미리 보기는 이 로그의 WARN 줄만 인스펙터 경고로 올리므로 같은 규칙이 된다
+        void WarnAnimatedShapes(Job j)
+        {
+            if (j.mesh == null || !j.reports.Any(r => SrSide.On(j.c, r.left) && r.ok)) return;
+            if (animatedPaths == null) animatedPaths = SleeveRollPb.AnimatedPaths(root);
+            var key = "S|" + UnityEditor.AnimationUtility.CalculateTransformPath(j.cloth.transform, root.transform) + "|blendShape.";
+            if (!animatedPaths.Any(p => p.StartsWith(key))) return;
+            var names = SleeveRollShape.SleeveShapes(cache.Get(j.cloth), animator, n => animatedPaths.Contains(key + n));
+            string Fmt(IEnumerable<(string name, float weight)> s) => string.Join(", ", s.Select(x => x.name + "=" + x.weight.ToString("0")));
+            var on = names.Where(x => Mathf.Abs(x.weight) >= 0.01f).ToList();   // 입은 모양과 같은 문턱(Cache.Entry.Wear)
+            var off = names.Where(x => Mathf.Abs(x.weight) < 0.01f).ToList();
+            if (on.Count > 0)
+                log.AppendLine($"WARN {j.cloth.name}: an animation changes {Fmt(on)}, which move the sleeve — the roll is made for the values at build time");
+            if (off.Count > 0)
+                log.AppendLine($"  {j.cloth.name}: an animation changes {Fmt(off)} (built at 0 — if a menu turns them on, the rolled sleeve may not fit)");
         }
 
         // shrink를 해제하지 않을 때(D16): 그쪽 몸 메시들의 shrink 경계 중 가장 손목 쪽 → 그 너머 첫 고리 + 덮개 여유까지만. 슬라이더가 더 손목 쪽이면 슬라이더대로(false). shrink가 없어도 false
@@ -363,9 +386,12 @@ namespace Pyrite9.Sleeve
         }
 
         // 양쪽 셰이프를 다 켠 정점(토글 하나로 같이 걷힌다)
-        static Vector3[] RolledVertices(Mesh mesh)
+        // worn: 그 옷의 입은 모양 — 걷기 셰이프는 그 위에 더하는 이동이다(0.1.3-beta6).
+        // 셰이프로 접혀 피부 안에 숨은 정점(SideReport.hid)은 NaN — 겉면이 아니라 피부로 안 잰다(SampleSkin이 건너뜀).
+        // 축 가까이 모인 정점은 둘레 각도가 부동소수 잡음에 흔들려, 재면 바깥 옷 피부 격자에 얇은 칸(구멍)이 아무 데나 생긴다
+        static Vector3[] RolledVertices(Vector3[] worn, Mesh mesh, List<SleeveRollShape.SideReport> reports)
         {
-            var v = mesh.vertices;
+            var v = (Vector3[])worn.Clone();
             var d = new Vector3[v.Length];
             foreach (bool left in SrSide.Both)
             {
@@ -374,6 +400,11 @@ namespace Pyrite9.Sleeve
                 mesh.GetBlendShapeFrameVertices(si, mesh.GetBlendShapeFrameCount(si) - 1, d, null, null);
                 for (int i = 0; i < v.Length; i++) v[i] += d[i];
             }
+            if (reports != null)
+                foreach (var r in reports)
+                    if (r.hid != null)
+                        for (int i = 0; i < v.Length && i < r.hid.Length; i++)
+                            if (r.hid[i]) v[i] = new Vector3(float.NaN, float.NaN, float.NaN);
             return v;
         }
 
