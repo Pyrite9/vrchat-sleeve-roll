@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-Version 0.1.3-beta6 (2026-11-13)
+Version 0.1.3-beta7 (2026-11-14)
 
 A sleeve-rolling gimmick for VRChat avatars. Drop the prefab into an avatar and pick the sleeved garment — when you build, the rolled-up sleeve is worked out from that garment's own mesh.
 Turn the Expression Menu toggle on and both sleeves roll up, and others see it too. No shape keys or mesh data come with this package — the shape is made at build time from the garment you own.
@@ -84,14 +84,16 @@ With **Menu** off, no menu is added. The synced Bool parameter `Pyrite9/SleeveRo
 
 | Item | Added |
 |---|---|
-| BlendShape | 2 on the garment (`SleeveUp_L`, `SleeveUp_R`), 2 on a body mesh that shrinks the arm under the outfit (`SleeveRoll_Unhide_L/R` — only when there is a shrink) |
+| BlendShape | 2 on the garment (`SleeveUp_L`, `SleeveUp_R`), 2 on a body mesh that shrinks the arm under the outfit (`SleeveRoll_Unhide_L/R` — only when there is a shrink). On an avatar where an animation (an outfit toggle and the like) turns that shrink on and off, 2 per such shrink shape (`SleeveRoll_Unhide_L/R__<shape name>`) — both kinds when it also has a fixed shrink |
 | Bones | 2 (wrist helper bones `SleeveRoll_Wrist_L/R`), plus 1 per bone of a kept sleeve PhysBone that holds cloth (`SleeveRoll_Shadow_…`) |
 | Constraints | 2 VRC Rotation Constraints, plus 1 per bone of a kept sleeve PhysBone that holds cloth |
-| FX layers | 1 |
+| FX layers | 1, plus 1 (`Sleeve Roll Unhide`) only when an animation turns the shrink on and off |
 | Synced parameters | 1 bit (shared by every Sleeve Roll in the avatar) |
 | Menu icon | 1 texture, 256×256 (only with the menu toggle) |
 
 No meshes or materials are added, and no textures except the menu icon. No sleeve PhysBones are added either (the existing ones keep running).
+
+Only when an animation turns the shrink on and off, unsynced Animator parameters are added — 1 per such shrink shape (`Pyrite9/SleeveRoll/Live/…`) plus 2 (`Pyrite9/SleeveRoll/One`, `Pyrite9/SleeveRoll/Rolled`). They are not put in Expression Parameters, so the synced bits stay the same.
 
 ## Settings (Sleeve Roll component)
 
@@ -116,6 +118,8 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 | `the body mesh has forearm skin only from t=… (cut away under the outfit)` | The body model has the forearm cut away under the outfit. Use a body mesh with the whole forearm. |
 | `no skin (body) mesh found on the forearm` | The body to measure the skin on wasn't found. Put the body mesh in **Advanced > Body Meshes**. |
 | `an MA Shape Changer in Delete mode removes vertices at build` | That body mesh loses vertices at build. If you see a hole where the sleeve is rolled, switch that Shape Changer to Set mode. |
+| `hide shape '…' is animated in the … layer — the arm brought back under a rolled sleeve follows it only in FX` | An animation in a layer other than FX (Gesture and the like) changes this shrink shape. Releasing the shrink while rolled follows only FX animations, so if that layer takes the shrink off, the arm under the rolled sleeve can bulge. Move that animation to the FX layer. |
+| `could not read the animator controllers (…) — the arm an outfit hides is brought back as it was at build, even when the outfit is toggled off` | Reading the animator controllers failed (reason in the brackets). The build goes on and the sleeves roll, but releasing the shrink doesn't follow outfit toggles (as in 0.1.3-beta6 — turning the outfit off while rolled can make the forearm bulge). Please send the build log (see "Contact"). |
 | `the menu toggle is not in the built Expression Menu — Install to (…) is not a menu of this avatar` | The **Install to** menu is not part of this avatar's menu. Empty it (the root) or pick a submenu of the avatar's Expression Menu. |
 | `N controls in the Expression Menu drive 'Pyrite9/SleeveRoll/Hold' — one is enough` | The menu has two or more switches for the sleeves (for example a toggle you made yourself with 0.1.0). Delete your own toggle, or turn **Menu** off and keep only yours. |
 | Skin shows through the rolled cloth | Raise **Rolled shape > Gap to skin**. |
@@ -127,6 +131,9 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 | `a PhysBone under the upper arm (…) holds this sleeve down to t=… — it cannot be rolled` | A PhysBone on the upper arm holds the sleeve down to the cuff. This outfit can't be rolled. |
 | The sleeve jumps once when it starts to roll | Normal. The rolled shape is worked out from the PhysBone's rest pose, so a drooping sleeve goes back to it. It sways again when lowered. |
 | The rolled cuff bends with the wrist | Check that **Advanced > Wrist Proxy** is on. |
+| The forearm bulges when you turn an outfit off from the menu with the sleeves rolled | Fixed in 0.1.3-beta7. If it still bulges, that outfit toggle was made with a tool that builds its FX after Sleeve Roll (VRCFury and the like) — Sleeve Roll can't follow it. Toggles made with Modular Avatar (Object Toggle, Shape Changer) and animations put straight in FX are followed. |
+| The forearm looks off for one frame the moment an outfit is turned off or on | Known behavior: releasing the shrink follows the outfit toggle one frame late. |
+| A thin arm shows inside the rolled sleeve (the outfit shrinks the arm and it isn't released) | First check that **Unhide When Rolled** is on. Only a shrink that is on at build is released while rolled — on an avatar where an animation turns on a shrink shape that is 0 in the scene, that shrink is not released. Turn that shape on in the scene to the value the outfit's animation sets, then build: it is released, and the release goes away when the outfit is turned off (checked on one avatar). |
 | Sleeve whose cuff hangs below the arm (e.g. a sleeve sliding off one side) | If the sleeve end is open, it is corrected automatically at build; the build log shows `normalized`. Only the Foxy outfit family was tested. A sleeve with a closed end, a detached cuff, a large separate part (such as a ribbon) or a slit along the top may not be corrected, or may lose its shape. |
 
 ## Update / remove
@@ -138,6 +145,7 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 
 ## Changelog
 
+- **0.1.3-beta7** (2026-11-14): Fixed the forearm bulging when an outfit is turned off with a menu toggle while the sleeves are rolled (avatars whose outfit shrinks the arm under the sleeve). Releasing the shrink while rolled now follows that shrink shape's current value. On such avatars the shrink-release shapes are renamed `SleeveRoll_Unhide_L/R__<shape name>` and one FX layer is added. The arm can look off for one frame the moment the outfit is turned off. Other avatars build the same as 0.1.3-beta6.
 - **0.1.3-beta6** (2026-11-13): The rolled shape is now worked out from the garment as it is worn, with the shape keys that are turned on (for example a vendor shape that folds an inner shirt's sleeve away under a jacket). Before, such a sleeve rolled into a flat, broken cuff. A warning shows when an animation changes a shape key that moves the sleeve. Garments with every shape key at 0 build the same as 0.1.3-beta5.
 - **0.1.3-beta5** (2026-11-12): On the same outfits (a sleeve also weighted to bones that move on their own), the part of the cuff weighted to those bones now rolls up as far as the rest of the sleeve, instead of staying lower and hanging under the arm.
 - **0.1.3-beta4** (2026-11-12): Fixed the rolled cuff sagging or lifting when the arm moves, on outfits whose sleeve is also weighted to bones that move on their own (a PhysBone sleeve under the upper arm, or a bone a constraint makes follow one). While rolled, those vertices now follow the forearm; while down, they sway as before. Fixed sleeves barely rolling on bodies whose forearm skin is weighted mostly to a twist bone (for example Milltina). A body mesh with forearm skin only near the wrist (cut away under the outfit) now rolls the sleeve as far as that skin reaches and shows a warning, instead of failing.
@@ -153,7 +161,7 @@ No meshes or materials are added, and no textures except the menu icon. No sleev
 - The rolled shape is worked out again from the garment's mesh on every build. Change or edit the outfit and the next build fits it.
 - A sleeve PhysBone is checked at build time and kept only when it's safe to hold still while rolled. It isn't kept (and you get a warning) if it also moves other bones, has Is Animated on, uses Max Stretch or Max Squish, is used by Avatar Optimizer Merge PhysBone, is moved by another animation (the PhysBone or its bones), or its rest pose differs from the mesh. **Last build** shows how many were kept.
 - If the garment has its own short-sleeve shape key, both can be on at once. On the tested outfits (Kipfel's shirt, Milfy's cardigan) that didn't break anything noticeable.
-- The FX layers follow the avatar's Write Defaults (Modular Avatar "Match Avatar Write Defaults"). The Action, Base and Gesture layers are not used.
+- The FX layers follow the avatar's Write Defaults (Modular Avatar "Match Avatar Write Defaults"), except the `Sleeve Roll Unhide` layer that releases a shrink an animation turns on and off: it has Write Defaults on whatever the avatar uses (last in FX, the same way as Modular Avatar's Merge Blend Tree). The Action, Base and Gesture layers are not used.
 - When you open the Sleeve Roll inspector in the Unity Editor, it asks GitHub (`api.github.com`) for this package's latest version once a day. No personal data is sent; click the version text to check again right away.
 
 ## Contact

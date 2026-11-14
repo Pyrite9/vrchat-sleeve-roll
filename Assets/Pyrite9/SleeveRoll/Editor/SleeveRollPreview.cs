@@ -130,11 +130,17 @@ namespace Pyrite9.Sleeve
                 {
                     var on = new List<int>();
                     foreach (bool left in SrSide.Both)
-                        foreach (var name in new[] { SrSide.ShapeName(left), SrSide.UnhideName(left) })
+                    {
+                        int i = kv.Value.GetBlendShapeIndex(SrSide.ShapeName(left));
+                        if (i >= 0) on.Add(i);
+                        // 되돌리기 — 숨김 셰이프별 몫(SleeveRoll_Unhide_L__<셰이프>)으로 나뉘었어도 걷음이면 전부 100
+                        var unhide = SrSide.UnhideName(left);
+                        for (int s = 0; s < kv.Value.blendShapeCount; s++)
                         {
-                            int i = kv.Value.GetBlendShapeIndex(name);
-                            if (i >= 0) on.Add(i);
+                            var n = kv.Value.GetBlendShapeName(s);
+                            if (n == unhide || n.StartsWith(unhide + "__")) on.Add(s);
                         }
+                    }
                     shown[kv.Key] = (kv.Value, on.ToArray());
                 }
             }

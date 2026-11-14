@@ -73,6 +73,23 @@ namespace Pyrite9.Sleeve
         readonly Dictionary<(Transform, bool), FollowShadow> followOf = new Dictionary<(Transform, bool), FollowShadow>();
         readonly HashSet<(string, bool, Transform)> followWarned = new HashSet<(string, bool, Transform)>();
 
+        /// <summary>
+        /// FX가 이 몸의 이 숨김 셰이프를 움직이나(옷 토글·MA 반응형) — 빌드만(SleeveRollUnhideFx.Scan), null = 나누지 않음(미리 보기).
+        /// 움직이는 셰이프의 되돌리기 몫은 따로 셰이프로 두고(liveUnhides), 걷은 동안 그 셰이프의 지금 값을 따라간다(Run 뒤에 SleeveRollUnhideFx.Add)
+        /// </summary>
+        internal System.Func<SkinnedMeshRenderer, string, bool> live;
+
+        /// <summary>숨김 셰이프 하나 몫의 되돌리기 셰이프 — 몸·쪽·숨김 셰이프·빌드 때 값</summary>
+        internal sealed class LiveUnhide
+        {
+            public SkinnedMeshRenderer body;
+            public bool left;
+            public string hide, shape;
+            public float weight;
+        }
+        internal readonly List<LiveUnhide> liveUnhides = new List<LiveUnhide>();
+        readonly HashSet<(SkinnedMeshRenderer, bool)> unhideDone = new HashSet<(SkinnedMeshRenderer, bool)>();
+
         public SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets,
             Dictionary<Transform, Transform> boneMap = null, HashSet<Transform> known = null)
             : this(root, animator, log, rec, deleteTargets, new SleeveRollShape.Cache { boneMap = boneMap, known = known }, null) { }
@@ -644,16 +661,31 @@ namespace Pyrite9.Sleeve
             Mesh previewCopy = null;
             if (previewMeshes != null) previewMeshes.TryGetValue(body, out previewCopy);
             if ((previewCopy != null ? previewCopy : body.sharedMesh).GetBlendShapeIndex(name) >= 0) return; // 다른 SleeveRoll이 이미 넣음
-            var d = SleeveRollShape.UnhideDelta(body, animator, left, tCut, cover[left ? 0 : 1], cache, out int nv, out string shapes, out string spared);
-            if (d == null)
+            if (unhideDone.Contains((body, left))) return;   // 몫으로만 나눠 넣어 위 이름이 없는 경우
+            var shares = live != null ? new List<SleeveRollShape.UnhideShare>() : null;
+            var d = SleeveRollShape.UnhideDelta(body, animator, left, tCut, cover[left ? 0 : 1], cache, out int nv, out string shapes, out string spared,
+                live != null ? (System.Func<string, bool>)(k => live(body, k)) : null, shares, out float err);
+            if (nv == 0)
             {
                 if (spared.Length > 0) log.AppendLine($"  {body.name} {SrSide.Letter(left)}: nothing to restore — [{spared}] left as set (not under the sleeve)");
                 return;
             }
-            BodyCopy(body, previewCopy).AddBlendShapeFrame(name, 100f, d, null, null);
+            unhideDone.Add((body, left));
+            var mesh = BodyCopy(body, previewCopy);
+            if (d != null) mesh.AddBlendShapeFrame(name, 100f, d, null, null);
             (left ? j.g.left : j.g.right).unhide += nv;
             log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name} restores {nv} vertices hidden by [{shapes}]" +
                            (spared.Length > 0 ? $"; [{spared}] left as set (not under the sleeve)" : ""));
+            if (shares == null || shares.Count == 0) return;
+            foreach (var s in shares)
+            {
+                var sn = name + "__" + s.shape;
+                if (mesh.GetBlendShapeIndex(sn) >= 0) continue;
+                mesh.AddBlendShapeFrame(sn, 100f, s.delta, null, null);
+                liveUnhides.Add(new LiveUnhide { body = body, left = left, hide = s.shape, shape = sn, weight = s.weight });
+            }
+            log.AppendLine($"  {body.name} {SrSide.Letter(left)}: split by hide shape — {string.Join(", ", shares.Select(s => name + "__" + s.shape))} follow their shape in FX" +
+                           (d != null ? $", {name} keeps the rest" : $", nothing fixed left ({name} not added)") + $", max |sum − one shape| {err * 1000f:0.######} mm");
         }
 
         // 셰이프를 넣을 몸 메시 사본 — 처음 넣을 때 만든다. 미리 보기는 렌더러를 안 건드린다

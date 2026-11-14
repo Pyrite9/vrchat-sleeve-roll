@@ -17,7 +17,7 @@ namespace Pyrite9.Sleeve
     /// 구동(FX·메뉴·대리 본 오브젝트)은 MA 앞 Generating에서 만들어 MA가 병합·경로 추적·메뉴 설치를 맡는다 — 셰이프는 그 뒤에 생기지만 이름이 정해져 있다.
     /// 빌드 로그는 Logs/Pyrite9_SleeveRoll_build.txt, 인스펙터 '마지막 빌드'는 SrBuildRecord.
     /// 파일: 이 파일(패스·로그·기록) · SleeveRollDriver(FX·메뉴·대리 본) · SleeveRollBake(셰이프·웨이트·되살리기) · SleeveRollShape(계산) ·
-    /// SleeveRollPb(PhysBone 소매 판정·그림자 본) · SleeveRollPbFx(그림자 본 FX 곡선) · SleeveRollPreview(미리 보기)
+    /// SleeveRollPb(PhysBone 소매 판정·그림자 본) · SleeveRollPbFx(그림자 본 FX 곡선) · SleeveRollUnhideFx(옷 토글을 따르는 되돌리기) · SleeveRollPreview(미리 보기)
     /// </summary>
     public class SleeveRollPlugin : Plugin<SleeveRollPlugin>
     {
@@ -68,10 +68,14 @@ namespace Pyrite9.Sleeve
                 {
                     rec.built = true;
                     var bake = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets, state.boneMap, state.known);
+                    bake.live = SleeveRollUnhideFx.Scan(ctx.AvatarRootObject, log);
                     var pb = bake.Run(comps);
                     // FX 컨텍스트는 넣을 게 있을 때만 — 그림자도 대리 본 스케일도 손가락·따라가기 그림자도 없는 아바타는 컨트롤러가 그대로 남는다
                     if (pb != null && (pb.Chains.Count > 0 || bake.proxyScales.Count > 0 || bake.fingerShadows.Count > 0 || bake.followShadows.Count > 0))
                         SleeveRollPbFx.Add(ctx, pb.Chains, bake.proxyScales, bake.fingerShadows, bake.followShadows, log);
+                    // 옷 토글이 숨김 셰이프를 움직이는 아바타만 — 되돌리기 몫이 그 셰이프의 지금 값을 따라가게(SleeveRollUnhideFx)
+                    if (bake.liveUnhides.Count > 0 && SleeveRollUnhideFx.Add(ctx, bake.liveUnhides, log))
+                        rec.fxLayers++;
                 }
             }
             catch (System.Exception e)

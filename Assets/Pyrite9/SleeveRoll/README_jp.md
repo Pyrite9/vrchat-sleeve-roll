@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-バージョン 0.1.3-beta6 (2026-11-13)
+バージョン 0.1.3-beta7 (2026-11-14)
 
 VRChat アバター用の袖まくりギミックです。プレハブをアバターに入れて袖のある衣装を選ぶだけで、ビルド時にその衣装のメッシュから「まくった袖」の形を計算して入れます。
 Expression Menu のトグルをオンにすると両袖がまくれ上がり、他の人にもそのまま見えます。このパッケージにはシェイプキーもメッシュのデータも入っていません。形はビルド時にお持ちの衣装から作られます。
@@ -84,14 +84,16 @@ English: `README_en.md` / 한국어: `README_ko.md` / 利用規約: `LICENSE.txt
 
 | 項目 | 増えるもの |
 |---|---|
-| BlendShape | 衣装に 2（`SleeveUp_L`・`SleeveUp_R`）、衣装の下の腕を shrink している体のメッシュに 2（`SleeveRoll_Unhide_L/R` — shrink がある場合のみ） |
+| BlendShape | 衣装に 2（`SleeveUp_L`・`SleeveUp_R`）、衣装の下の腕を shrink している体のメッシュに 2（`SleeveRoll_Unhide_L/R` — shrink がある場合のみ）。衣装のトグルなどアニメーションがその shrink をオン・オフするアバターでは、そうした shrink シェイプごとに 2（`SleeveRoll_Unhide_L/R__<シェイプ名>`）— 固定の shrink も混ざっていれば両方 |
 | ボーン | 2（手首の補助ボーン `SleeveRoll_Wrist_L/R`）、維持する袖の PhysBone のうち布が乗るボーンごとに 1（`SleeveRoll_Shadow_…`） |
 | Constraint | VRC Rotation Constraint 2、維持する袖の PhysBone のうち布が乗るボーンごとに 1 |
-| FX レイヤー | 1 |
+| FX レイヤー | 1、アニメーションがオン・オフする shrink があるときだけ +1（`Sleeve Roll Unhide`） |
 | 同期パラメーター | 1 bit（アバターの Sleeve Roll 全部で共通） |
 | メニューアイコン | テクスチャ 1 枚、256×256（メニューのトグルを使うときだけ） |
 
 メッシュ・マテリアルは増えません。テクスチャもメニューアイコンのほかは増えません。袖の PhysBone の数も増えません（既存のものがそのまま動きます）。
+
+アニメーションがオン・オフする shrink があるときだけ、同期しない Animator パラメーターが増えます — そうした shrink シェイプごとに 1（`Pyrite9/SleeveRoll/Live/…`）と 2（`Pyrite9/SleeveRoll/One`・`Pyrite9/SleeveRoll/Rolled`）。Expression Parameters には入らないので、同期ビットは変わりません。
 
 ## 設定（Sleeve Roll コンポーネント）
 
@@ -118,6 +120,8 @@ Console の警告は英語で出ます。インスペクターの **最後のビ
 | `the body mesh has forearm skin only from t=… (cut away under the outfit)` | 体のメッシュが衣装の下の前腕を切り取ったモデルです。前腕のある体のメッシュに変えるとまくれます。 |
 | `no skin (body) mesh found on the forearm` | 肌を測る体が見つかりません。**詳細 > Body Meshes** に体のメッシュを入れてください。 |
 | `an MA Shape Changer in Delete mode removes vertices at build` | この体のメッシュはビルド時に頂点を消します。まくった所に穴が見えたら、その Shape Changer を Set モードにしてください。 |
+| `hide shape '…' is animated in the … layer — the arm brought back under a rolled sleeve follows it only in FX` | FX 以外のレイヤー（Gesture など）のアニメーションがこの shrink シェイプを変えています。まくっている間の shrink 解除は FX のアニメーションにしか追従しないので、そのレイヤーが shrink を外すと、まくった袖の下の腕がふくらむことがあります。そのアニメーションを FX レイヤーに移してください。 |
+| `could not read the animator controllers (…) — the arm an outfit hides is brought back as it was at build, even when the outfit is toggled off` | アニメーターコントローラーの読み込みでエラーが起きました（理由は括弧内）。ビルドは続き袖もまくれますが、shrink 解除が衣装のトグルに追従しません（0.1.3-beta6 と同じ動作 — まくったまま衣装をオフにすると前腕がふくらむことがあります）。ビルドログを送ってください（下の「お問い合わせ」）。 |
 | `the menu toggle is not in the built Expression Menu — Install to (…) is not a menu of this avatar` | **インストール先** のメニューがこのアバターのメニューにありません。空にする（ルート）か、アバターの Expression Menu のサブメニューを選んでください。 |
 | `N controls in the Expression Menu drive 'Pyrite9/SleeveRoll/Hold' — one is enough` | 同じ袖のスイッチがメニューに 2 つ以上あります（0.1.0 のころ自分で作ったトグルが残っているなど）。自分で作ったトグルを消すか、**メニュー** をオフにして自分のものだけ残してください。 |
 | まくった布から肌が透ける | **まくった袖の形 > 肌とのすき間** を上げてください。 |
@@ -129,6 +133,9 @@ Console の警告は英語で出ます。インスペクターの **最後のビ
 | `a PhysBone under the upper arm (…) holds this sleeve down to t=… — it cannot be rolled` | 上腕の PhysBone が袖口まで支えているため、まくれない衣装です。 |
 | まくり始めに袖が一度動く | 正常です。まくった形は PhysBone の静止姿勢から計算するので、垂れた袖がその姿勢に戻ります。下ろすとまた揺れます。 |
 | まくった袖口が手首と一緒に曲がる | **詳細 > Wrist Proxy** がオンか確認してください。 |
+| 袖をまくったまま衣装をメニューでオフにすると前腕がふくらむ | 0.1.3-beta7 で直しました。それでもふくらむ場合は、その衣装のトグルが Sleeve Roll より後で FX を作るツール（VRCFury など）で作られています — 追従できません。Modular Avatar（Object Toggle・Shape Changer）や FX に直接入れたアニメーションには追従します。 |
+| 衣装をオフ・オンした瞬間に前腕の形が 1 フレームずれる | 既知の現象です。まくっている間の shrink 解除が、衣装のトグルに 1 フレーム遅れて追従します。 |
+| まくった袖の中に細い腕がそのまま見える（衣装が腕を shrink していて解除されない） | まず **Unhide When Rolled** がオンか確認してください。まくっている間に解除する shrink は、ビルド時にかかっているものだけです — シーンで 0 の shrink シェイプをアニメーションがオンにするアバターでは、その shrink を解除できません。そのシェイプをシーンで、衣装がオンのときにアニメーションが入れる値と同じにしてビルドすると解除され、衣装をオフにすると解除も一緒に外れます（1 つのアバターで確認）。 |
 | 袖口が腕より下に垂れた衣装（片側にずり落ちた袖など） | 袖の先が開いていれば、ビルド時に自動で補正します。ビルドログに `normalized` と出ます。確認した衣装は Foxy シリーズのみです。袖の先が閉じた袖、袖口が離れた袖、大きな別パーツ（リボンなど）が付いた袖、上側に切れ目がある袖は、補正されないか形が崩れることがあります。 |
 
 ## 更新・削除
@@ -140,6 +147,7 @@ Console の警告は英語で出ます。インスペクターの **最後のビ
 
 ## 更新履歴
 
+- **0.1.3-beta7** (2026-11-14)：袖をまくったまま衣装をメニューのトグルでオフにすると前腕がふくらむ問題を直しました（衣装が袖の下の腕を shrink しているアバター）。まくっている間の shrink 解除が、その shrink シェイプの今の値に追従します。このようなアバターでは shrink 解除のシェイプ名が `SleeveRoll_Unhide_L/R__<シェイプ名>` に変わり、FX レイヤーが 1 つ増えます。衣装をオフにした瞬間、1 フレームずれて見えることがあります。それ以外のアバターは 0.1.3-beta6 と同じです。
 - **0.1.3-beta6** (2026-11-13)：まくった形を、オンになっているシェイプキーを含めた「着ている形」から計算するようにしました（上着の下に袖をたたんで隠すインナーのシェイプなど）。これまではそうした袖がつぶれた平たい袖口になっていました。袖を動かすシェイプキーをアニメーションが変える場合は警告が出ます。シェイプキーがすべて 0 の衣装は 0.1.3-beta5 と同じです。
 - **0.1.3-beta5** (2026-11-12)：同じ種類の衣装（袖が独自に動くボーンにもウェイトされている衣装）で、そのボーンにウェイトされた袖口の部分が他の部分ほどまくれず、腕の下に垂れたまま残る問題を修正しました。
 - **0.1.3-beta4** (2026-11-12)：袖が独自に動くボーン（上腕の下の PhysBone 袖や、それに従うコンストレイントのボーン）にもウェイトされている衣装で、腕を動かすとまくった袖口が垂れたり浮いたりする問題を修正しました。まくっている間はその頂点が前腕に付いて動き、下ろしている間はこれまで通り揺れます。前腕の肌のウェイトが主にツイストボーンに乗っている素体（ミルティナなど）で、袖がほとんどまくれない問題を修正しました。前腕の肌が手首の近くにしかない素体メッシュ（衣装の下を削ったもの）では、失敗にせず肌がある所までまくり、警告を出すようにしました。
@@ -155,7 +163,7 @@ Console の警告は英語で出ます。インスペクターの **最後のビ
 - まくれた形はビルドのたびにその衣装のメッシュから計算し直します。衣装を変えたり直したりしても、もう一度ビルドすれば合います。
 - 袖の PhysBone はビルド時に調べ、まくっている間止めておいても安全なときだけ維持します。他のボーンも動かす、Is Animated がオン、Max Stretch・Max Squish を使用、Avatar Optimizer の Merge PhysBone で使用、その PhysBone やボーンを動かす別のアニメーションがある、静止姿勢がメッシュと違う — いずれかに当てはまると維持せず警告します。維持した数は **最後のビルド** に出ます。
 - 衣装に独自の半袖シェイプキーがあると、一緒にオンになることがあります。試した衣装（Kipfel のシャツ・Milfy のカーディガン）では重なっても大きく崩れませんでした。
-- FX レイヤーはアバターの Write Defaults 設定に合わせます（Modular Avatar「Match Avatar Write Defaults」）。Action・Base・Gesture レイヤーは使いません。
+- FX レイヤーはアバターの Write Defaults 設定に合わせます（Modular Avatar「Match Avatar Write Defaults」）。ただし、アニメーションがオン・オフする shrink を解除する `Sleeve Roll Unhide` レイヤーは、アバターの設定にかかわらず Write Defaults オンです（FX の最後、Modular Avatar の Merge Blend Tree と同じ方式）。Action・Base・Gesture レイヤーは使いません。
 - Unity エディターで Sleeve Roll のインスペクターを開くと、1 日 1 回 GitHub（`api.github.com`）にこのパッケージの最新版を問い合わせます。個人の情報は送信しません。バージョンの文字を押すとすぐにもう一度確認します。
 
 ## お問い合わせ

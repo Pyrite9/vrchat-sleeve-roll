@@ -16,8 +16,18 @@ namespace Pyrite9.Sleeve
         /// </summary>
         internal static Vector3[] UnhideDelta(SkinnedMeshRenderer body, Animator animator, bool left, float tCut, float coverEnd, Cache cache,
             out int vertices, out string shapes, out string spared)
+            => UnhideDelta(body, animator, left, tCut, coverEnd, cache, out vertices, out shapes, out spared, null, null, out _);
+
+        /// <summary>
+        /// 되돌리기를 숨김 셰이프별 몫으로 나눈다(옷 토글로 숨김이 풀리면 그 몫만 빠지게 — FX가 그 셰이프를 움직이는 경우).
+        /// live(셰이프 이름)가 참인 셰이프는 몫(−그 셰이프의 이동, 되살리는 정점만)을 shares에 따로 담고, 돌려주는 값은 나머지(전체 − 따로 담은 몫 — 고정 숨김).
+        /// 몫이 다 0인 셰이프(되살리는 정점을 안 움직임)는 안 담는다. 나머지가 거의 0이면 null. err = 남기는 셰이프들의 합과 나누기 전 값의 최대 차(메시 단위, 나누지 않으면 0).
+        /// live가 null이거나 참인 셰이프가 없으면 위 오버로드와 같은 배열이다. vertices는 어느 쪽이든 전체 되살림 정점 수
+        /// </summary>
+        internal static Vector3[] UnhideDelta(SkinnedMeshRenderer body, Animator animator, bool left, float tCut, float coverEnd, Cache cache,
+            out int vertices, out string shapes, out string spared, System.Func<string, bool> live, List<UnhideShare> shares, out float err)
         {
-            vertices = 0; shapes = ""; spared = "";
+            vertices = 0; shapes = ""; spared = ""; err = 0f;
             var h = ActiveHide(body, animator, left, cache);
             if (h == null) return null;
             var sum = h.sum; var hidden = h.hidden; shapes = h.shapes;
@@ -52,7 +62,44 @@ namespace Pyrite9.Sleeve
                 outD[v] = -sum[v];
                 vertices++;
             }
-            return vertices == 0 ? null : outD;
+            if (vertices == 0) return null;
+            if (live == null || shares == null) return outD;
+            int before = shares.Count;
+            foreach (var p in h.parts)
+            {
+                if (drop != null && drop.Contains(p)) continue;
+                Vector3[] d = null;
+                for (int v = 0; v < outD.Length; v++)
+                {
+                    if (!hidden[v] || h.t[v] < tCut || p.delta[v] == Vector3.zero) continue;
+                    (d ?? (d = new Vector3[outD.Length]))[v] = -p.delta[v];
+                }
+                if (d != null && live(p.shape)) shares.Add(new UnhideShare { shape = p.shape, weight = p.weight, delta = d });
+            }
+            if (shares.Count == before) return outD;
+            // 나머지 = 전체 − 따로 담은 몫 — 몫의 합이 늘 전체와 같다(숨김 셰이프가 아닌 셰이프의 아주 작은 이동도 나머지에 남는다)
+            var rest = (Vector3[])outD.Clone();
+            float most = 0f;
+            for (int s = before; s < shares.Count; s++)
+                for (int v = 0; v < rest.Length; v++) rest[v] -= shares[s].delta[v];
+            for (int v = 0; v < rest.Length; v++) most = Mathf.Max(most, rest[v].magnitude);
+            if (most < h.eps * 1e-3f) rest = null;
+            // 기록용: 남기는 셰이프들의 합과 나누기 전 셰이프의 최대 차(메시 단위)
+            for (int v = 0; v < outD.Length; v++)
+            {
+                var t = rest != null ? rest[v] : Vector3.zero;
+                for (int s = before; s < shares.Count; s++) t += shares[s].delta[v];
+                err = Mathf.Max(err, (t - outD[v]).magnitude);
+            }
+            return rest;
+        }
+
+        /// <summary>되돌리기의 숨김 셰이프 하나 몫 — FX가 그 셰이프를 움직일 때 따로 둔다(SleeveRollUnhideFx). weight = 빌드 때 렌더러 값</summary>
+        internal sealed class UnhideShare
+        {
+            public string shape;
+            public float weight;
+            public Vector3[] delta;
         }
 
         /// <summary>
@@ -90,6 +137,8 @@ namespace Pyrite9.Sleeve
         internal sealed class HidePart
         {
             public string name;        // 로그용 '이름=값'
+            public string shape;       // 셰이프 이름
+            public float weight;       // 빌드 때 렌더러 값
             public Vector3[] delta;    // 지금 값에서의 정점 이동(읽기만)
         }
 
@@ -155,7 +204,7 @@ namespace Pyrite9.Sleeve
                 {
                     if (!moved[s]) continue;
                     names[s].Add(mesh.GetBlendShapeName(i) + "=" + w.ToString("0")); // 팔뚝을 움직인 셰이프만 로그에
-                    if (part == null) part = new HidePart { name = names[s][names[s].Count - 1], delta = (Vector3[])dv.Clone() };
+                    if (part == null) part = new HidePart { name = names[s][names[s].Count - 1], shape = mesh.GetBlendShapeName(i), weight = w, delta = (Vector3[])dv.Clone() };
                     hs[s].parts.Add(part);
                 }
             }

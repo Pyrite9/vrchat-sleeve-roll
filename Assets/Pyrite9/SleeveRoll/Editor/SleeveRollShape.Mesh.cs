@@ -322,9 +322,10 @@ namespace Pyrite9.Sleeve
             return map;
         }
 
-        /// <summary>Sleeve Roll이 넣는 셰이프(걷기·되돌리기) — 입은 모양에 넣지 않는다(이미 셰이프가 있는 옷, 미리 보기 프록시가 켠 값)</summary>
+        /// <summary>Sleeve Roll이 넣는 셰이프(걷기·되돌리기, 숨김 셰이프별로 나눈 되돌리기 SleeveRoll_Unhide_L__&lt;셰이프&gt; 포함) — 입은 모양에 넣지 않는다(이미 셰이프가 있는 옷, 미리 보기 프록시가 켠 값)</summary>
         static bool OwnShape(string name) =>
-            name == ShapeLeft || name == ShapeRight || name == UnhideLeft || name == UnhideRight;
+            name == ShapeLeft || name == ShapeRight || name == UnhideLeft || name == UnhideRight
+            || name.StartsWith(UnhideLeft + "__") || name.StartsWith(UnhideRight + "__");
 
         // 같은 위치 정점(UV 이음새)을 한 번호로 묶는다. only: 이 정점들만(나머지는 −1), null이면 전부. count: 묶음 수
         static int[] WeldKeys(Vector3[] verts, bool[] only, out int count)

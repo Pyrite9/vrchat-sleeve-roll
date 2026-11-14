@@ -1,6 +1,6 @@
 # Pyrite9 Sleeve Roll
 
-버전 0.1.3-beta6 (2026-11-13)
+버전 0.1.3-beta7 (2026-11-14)
 
 VRChat 아바타용 소매 걷기 기믹입니다. 프리팹을 아바타에 넣고 소매 달린 옷을 고르기만 하면, 빌드할 때 그 옷의 메시로 "걷힌 소매" 모양을 계산해 넣습니다.
 Expression Menu 토글을 켜면 양 소매가 걷혀 올라가고, 남에게도 그대로 보입니다. 이 패키지에는 셰이프키도 메시 데이터도 들어 있지 않습니다. 모양은 빌드할 때 내가 가진 옷으로 만들어집니다.
@@ -84,14 +84,16 @@ English: `README_en.md` / 日本語: `README_jp.md` / 이용 규약: `LICENSE.tx
 
 | 항목 | 늘어나는 것 |
 |---|---|
-| BlendShape | 옷에 2(`SleeveUp_L`·`SleeveUp_R`), 옷 밑 팔을 shrink한 몸 메시에 2(`SleeveRoll_Unhide_L/R` — shrink가 있을 때만) |
+| BlendShape | 옷에 2(`SleeveUp_L`·`SleeveUp_R`), 옷 밑 팔을 shrink한 몸 메시에 2(`SleeveRoll_Unhide_L/R` — shrink가 있을 때만). 옷 토글 등 애니메이션이 그 shrink를 켜고 끄는 아바타는 그런 shrink 셰이프마다 2(`SleeveRoll_Unhide_L/R__<셰이프 이름>`) — 고정된 shrink와 섞여 있으면 둘 다 |
 | 본 | 2(손목 보조 본 `SleeveRoll_Wrist_L/R`), 유지하는 소매 PhysBone 중 옷이 실린 본마다 1(`SleeveRoll_Shadow_…`) |
 | Constraint | VRC Rotation Constraint 2, 유지하는 소매 PhysBone 중 옷이 실린 본마다 1 |
-| FX 레이어 | 1 |
+| FX 레이어 | 1, 애니메이션이 켜고 끄는 shrink가 있을 때만 +1(`Sleeve Roll Unhide`) |
 | 동기화 파라미터 | 1 bit(아바타의 Sleeve Roll 전부 공통) |
 | 메뉴 아이콘 | 텍스처 1장, 256×256(메뉴 토글을 쓸 때만) |
 
 메시·머티리얼은 늘지 않습니다. 텍스처도 메뉴 아이콘 말고는 늘지 않습니다. 소매 PhysBone의 개수도 늘지 않습니다(있던 것이 그대로 돕니다).
+
+애니메이션이 켜고 끄는 shrink가 있을 때만 동기화되지 않는 Animator 파라미터가 늘어납니다 — 그런 shrink 셰이프마다 1(`Pyrite9/SleeveRoll/Live/…`)과 2(`Pyrite9/SleeveRoll/One`·`Pyrite9/SleeveRoll/Rolled`). Expression Parameters에는 들어가지 않으므로 동기화 비트는 그대로입니다.
 
 ## 설정(Sleeve Roll 컴포넌트)
 
@@ -118,6 +120,8 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 | `the body mesh has forearm skin only from t=… (cut away under the outfit)` | 몸 메시가 옷 밑 팔뚝을 잘라 낸 모델입니다. 팔뚝이 있는 몸 메시로 바꾸면 걷힙니다. |
 | `no skin (body) mesh found on the forearm` | 피부를 잴 몸을 못 찾았습니다. **고급 > Body Meshes**에 몸 메시를 넣으세요. |
 | `an MA Shape Changer in Delete mode removes vertices at build` | 이 몸 메시는 빌드 때 정점을 지웁니다. 걷힌 자리에 구멍이 보이면 그 Shape Changer를 Set 모드로 바꾸세요. |
+| `hide shape '…' is animated in the … layer — the arm brought back under a rolled sleeve follows it only in FX` | FX가 아닌 레이어(Gesture 등)의 애니메이션이 이 shrink 셰이프를 바꿉니다. 걷는 동안의 shrink 해제는 FX의 애니메이션만 따라가므로, 그 레이어가 shrink를 풀면 걷은 소매 밑 팔이 부풀 수 있습니다. 그 애니메이션을 FX 레이어로 옮기세요. |
+| `could not read the animator controllers (…) — the arm an outfit hides is brought back as it was at build, even when the outfit is toggled off` | 애니메이터 컨트롤러를 읽다가 오류가 났습니다(이유는 괄호 안). 빌드는 계속되고 소매도 걷히지만, shrink 해제가 옷 토글을 따라가지 않습니다(0.1.3-beta6과 같은 동작 — 걷은 채 옷을 끄면 팔뚝이 부풀 수 있음). 빌드 로그를 보내 주세요(아래 "문의"). |
 | `the menu toggle is not in the built Expression Menu — Install to (…) is not a menu of this avatar` | **설치 위치** 메뉴가 이 아바타의 메뉴가 아닙니다. 비우거나(루트) 아바타 Expression Menu의 하위 메뉴를 고르세요. |
 | `N controls in the Expression Menu drive 'Pyrite9/SleeveRoll/Hold' — one is enough` | 메뉴에 같은 소매 스위치가 두 개 이상 있습니다(0.1.0 때 직접 만든 토글이 남아 있는 등). 직접 만든 토글을 지우거나, **메뉴**를 끄고 직접 만든 것만 남기세요. |
 | `this sleeve's PhysBone stops moving (…)` | 이 소매의 PhysBone을 안전하게 유지할 수 없어서(이유는 괄호 안) 소매가 물리 없이 손을 따라갑니다. 걷히기는 합니다. 물리를 살리려면 괄호 안 원인을 없애세요. |
@@ -129,6 +133,9 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 | 걷힌 소매가 너무 두껍거나 얇음 | **소매 굵기**를 조절하세요(왼쪽 끝이면 팔에 딱 붙음). |
 | 겹쳐 입은 옷의 안쪽 천이 바깥으로 비침 | 두 옷을 모두 골랐는지 확인하세요(하나만 고르면 다른 옷은 걷히지 않고 그대로). 바깥 옷 쪽 **피부와 간격**을 조금 올려도 됩니다. |
 | 걷힌 소맷단이 손목을 따라 꺾임 | **고급 > Wrist Proxy**가 켜져 있는지 확인하세요. |
+| 소매를 걷은 채 옷을 메뉴로 끄면 팔뚝이 부풂 | 0.1.3-beta7에서 고쳤습니다. 그래도 부풀면 그 옷 토글이 Sleeve Roll보다 늦게 FX를 만드는 도구(VRCFury 등)로 만들어진 경우입니다 — 따라가지 못합니다. Modular Avatar(Object Toggle·Shape Changer)나 FX에 직접 넣은 애니메이션은 따라갑니다. |
+| 옷을 끄거나 켜는 순간 팔뚝 모양이 한 프레임 어긋남 | 알려진 현상입니다. 걷는 동안의 shrink 해제가 옷 토글을 한 프레임 늦게 따라갑니다. |
+| 걷힌 소매 안에 가는 팔이 그대로 보임(옷이 팔을 shrink 하는데 해제가 안 됨) | 먼저 **Unhide When Rolled**가 켜져 있는지 확인하세요. 걷는 동안 해제하는 shrink는 빌드 때 걸려 있는 것뿐입니다 — 씬에서 0인 shrink 셰이프를 애니메이션이 켜는 아바타는 그 shrink를 해제하지 못합니다. 씬에서 그 셰이프를 옷이 켜졌을 때 애니메이션이 넣는 값과 같게 켜 두고 빌드하면 해제되고, 옷을 끄면 해제도 함께 빠집니다(한 아바타에서 확인). |
 | 소맷단이 팔 아래로 처진 옷(한쪽으로 흘러내린 소매 등) | 소매 끝이 뚫려 있으면 빌드 때 자동으로 바로잡습니다. 빌드 로그에 `normalized`가 나옵니다. 확인한 옷은 Foxy 계열뿐입니다. 소매 끝이 막혔거나, 소맷단이 떨어져 있거나, 큰 부품(리본 등)이 따로 달렸거나, 윗부분이 트인 소매는 바로잡지 못하거나 모양이 깨질 수 있습니다. |
 
 ## 업데이트·제거
@@ -140,6 +147,7 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 
 ## 변경 기록
 
+- **0.1.3-beta7** (2026-11-14): 소매를 걷은 채 옷을 메뉴 토글로 끄면 팔뚝이 부풀던 문제를 고쳤습니다(옷이 소매 밑 팔을 shrink 하는 아바타). 걷는 동안의 shrink 해제가 그 shrink 셰이프의 지금 값을 따라갑니다. 이런 아바타는 shrink 해제 셰이프 이름이 `SleeveRoll_Unhide_L/R__<셰이프 이름>`으로 바뀌고 FX 레이어가 하나 늘어납니다. 옷을 끄는 순간 한 프레임 어긋나 보일 수 있습니다. 그 밖의 아바타는 0.1.3-beta6과 같습니다.
 - **0.1.3-beta6** (2026-11-13): 걷은 모양을 켜 둔 셰이프키까지 반영한 '입은 모양'으로 계산합니다(겉옷 밑에서 속옷 소매를 접어 숨기는 셰이프 등). 전에는 그런 소매가 납작하게 뭉개진 소맷단이 됐습니다. 소매를 움직이는 셰이프키를 애니메이션이 바꾸면 경고가 나옵니다. 셰이프키가 모두 0인 옷은 0.1.3-beta5와 같습니다.
 - **0.1.3-beta5** (2026-11-12): 같은 종류의 옷(소매가 따로 움직이는 본에도 웨이트된 옷)에서, 그 본에 웨이트된 소맷단 부분이 나머지만큼 안 걷혀 팔 밑으로 처진 채 남던 문제를 고쳤습니다.
 - **0.1.3-beta4** (2026-11-12): 소매가 따로 움직이는 본(위팔 밑 PhysBone 소매, 그걸 따르는 Constraint 본)에도 웨이트된 옷에서, 팔을 움직이면 걷힌 소맷단이 처지거나 들리던 문제를 고쳤습니다. 걷은 동안엔 그 정점이 아래팔을 따라가고, 내린 동안엔 전처럼 흔들립니다. 팔뚝 피부 웨이트가 주로 트위스트 본에 실린 몸(밀티나 등)에서 소매가 거의 안 걷히던 문제를 고쳤습니다. 팔뚝 피부가 손목 근처에만 있는 몸 메시(옷 밑을 잘라 낸 것)는 실패로 끝내지 않고 피부가 있는 데까지 걷고 경고를 냅니다.
@@ -155,7 +163,7 @@ Console 경고는 영어로 나옵니다. 인스펙터 **마지막 빌드**에�
 - 걷힌 모양은 빌드할 때마다 그 옷 메시로 새로 계산합니다. 옷을 바꾸거나 고쳐도 다시 빌드하면 맞춰집니다.
 - 소매 PhysBone은 빌드 때 살펴서 걷힌 동안 멈춰 둬도 안전할 때만 유지합니다. 다른 본까지 움직임, Is Animated 켬, Max Stretch·Max Squish 사용, Avatar Optimizer Merge PhysBone 사용, 그 PhysBone이나 본을 움직이는 다른 애니메이션이 있음, 쉬는 자세가 메시와 다름 — 이 중 하나면 유지하지 않고 경고합니다. 유지한 개수는 **마지막 빌드**에 나옵니다.
 - 옷에 자체 반소매 셰이프키가 있으면 함께 켜질 수 있습니다. 시험한 옷(Kipfel 셔츠·Milfy 카디건)에서는 겹쳐도 크게 깨지지 않았습니다.
-- FX 레이어는 아바타의 Write Defaults 설정에 맞춰집니다(Modular Avatar "Match Avatar Write Defaults"). Action·Base·Gesture 레이어는 쓰지 않습니다.
+- FX 레이어는 아바타의 Write Defaults 설정에 맞춰집니다(Modular Avatar "Match Avatar Write Defaults"). 단, 애니메이션이 켜고 끄는 shrink를 해제하는 `Sleeve Roll Unhide` 레이어는 아바타 설정과 관계없이 Write Defaults 켬입니다(FX 맨 끝, Modular Avatar의 Merge Blend Tree와 같은 방식). Action·Base·Gesture 레이어는 쓰지 않습니다.
 - Unity 에디터에서 Sleeve Roll 인스펙터를 열면 하루 한 번 GitHub(`api.github.com`)에 이 패키지의 최신 버전을 묻습니다. 개인 정보는 보내지 않고, 버전 글자를 누르면 바로 다시 확인합니다.
 
 ## 문의
