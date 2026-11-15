@@ -68,6 +68,9 @@ namespace Pyrite9.Sleeve
             public string from;   // 쉬는 값을 정한 옷
             public Quaternion upRot;
             public Vector3 upPos, scale;
+            // Parent Constraint는 스케일을 안 옮긴다 — 내림 = 그 본의 지금 스케일(아래팔 기준), 걷음 = scale(바인드 비). 둘이 다를 때만(아래팔 본만 스케일한 아바타 등) Transform 곡선
+            public Vector3 downScale;
+            public bool ScaleCurve => !Near(downScale, scale, 1e-4f);
         }
         internal readonly List<FollowShadow> followShadows = new List<FollowShadow>();
         readonly Dictionary<(Transform, bool), FollowShadow> followOf = new Dictionary<(Transform, bool), FollowShadow>();
@@ -79,16 +82,23 @@ namespace Pyrite9.Sleeve
         /// </summary>
         internal System.Func<SkinnedMeshRenderer, string, bool> live;
 
-        /// <summary>숨김 셰이프 하나 몫의 되돌리기 셰이프 — 몸·쪽·숨김 셰이프·빌드 때 값</summary>
+        /// <summary>
+        /// FX가 이 몸의 이 셰이프에 쓰는 값 중 절댓값이 가장 큰 값(안 쓰면 0) — 빌드만(SleeveRollUnhideFx.Scan), null = 빌드 때 0인 숨김을 안 본다(미리 보기).
+        /// 빌드 때 0인 셰이프를 FX가 켜서 팔뚝을 숨기면 그 몫도 따로 둔다(0.1.3 B, SleeveRollShape.ZeroShares)
+        /// </summary>
+        internal System.Func<SkinnedMeshRenderer, string, float> fxRef;
+
+        /// <summary>숨김 셰이프 하나 몫의 되돌리기 셰이프 — 몸·쪽·숨김 셰이프·빌드 때 값(built)·몫이 되돌리는 값(reference, 켜진 셰이프는 built와 같음, 빌드 때 0인 셰이프는 FX 최대 — 0.1.3 B)</summary>
         internal sealed class LiveUnhide
         {
             public SkinnedMeshRenderer body;
             public bool left;
             public string hide, shape;
-            public float weight;
+            public float built, reference;
         }
         internal readonly List<LiveUnhide> liveUnhides = new List<LiveUnhide>();
         readonly HashSet<(SkinnedMeshRenderer, bool)> unhideDone = new HashSet<(SkinnedMeshRenderer, bool)>();
+        List<Job> allJobs;   // BuildAll의 옷 전부(안쪽 → 바깥) — 되돌리기를 걷힌 소매에 맞출 때(ReleaseToSleeve)
 
         public SleeveRollBake(GameObject root, Animator animator, StringBuilder log, SrBuildRecord.Entry rec, HashSet<string> deleteTargets,
             Dictionary<Transform, Transform> boneMap = null, HashSet<Transform> known = null)
@@ -144,6 +154,7 @@ namespace Pyrite9.Sleeve
             var jobs = CollectJobs(comps);
             if (jobs.Count == 0) return;
             jobs = jobs.OrderBy(j => float.IsNaN(j.radius) ? float.MaxValue : j.radius).ToList();
+            allJobs = jobs;
             var all = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             var picked = new HashSet<SkinnedMeshRenderer>(jobs.Select(j => j.cloth));
             if (jobs.Count > 1)
@@ -228,7 +239,8 @@ namespace Pyrite9.Sleeve
         }
 
         /// <summary>
-        /// 본 b의 따라가기 그림자 — 아바타에 쪽·본마다 하나. 쉬는 값 = L(아래팔 바인드 · b 바인드⁻¹)의 위치·회전, localScale = L 스케일. 다른 옷의 L이 다르면 처음 옷을 따르고 WARN
+        /// 본 b의 따라가기 그림자 — 아바타에 쪽·본마다 하나. 쉬는 값 = L(아래팔 바인드 · b 바인드⁻¹)의 위치·회전, 걷음 localScale = L 스케일,
+        /// 내림 localScale = 지금 b의 아래팔 기준 스케일(다를 때만 곡선 — 같으면 전과 같은 출력). 다른 옷의 L이 다르면 처음 옷을 따르고 WARN
         /// </summary>
         Transform FollowShadowFor(string cloth, bool left, Transform b, Transform lower, Matrix4x4 m)
         {
@@ -243,10 +255,12 @@ namespace Pyrite9.Sleeve
                     log.AppendLine($"WARN {cloth} {SrSide.Letter(left)}: its bind pose holds {b.name} {deg:0.#}° and {meters * 1000f:0.#} mm off {fs.from}'s, scale {Fmt(scale)} vs {Fmt(fs.scale)} — the follow shadow follows {fs.from}, the rolled cuff of {cloth} may sit off");
                 return fs.shadow;
             }
+            var downScale = Snap((lower.worldToLocalMatrix * b.localToWorldMatrix).lossyScale);   // 내림 = 그 본과 월드 스케일 일치
+            if (Near(downScale, scale, 1e-4f)) downScale = scale;
             var t = new GameObject(UniqueChild(lower, "SleeveRoll_Follow_" + b.name)).transform;
             t.SetParent(lower, false);
             t.SetPositionAndRotation(b.position, b.rotation);   // 내림(기본 상태) 자리
-            t.localScale = scale;
+            t.localScale = downScale;
             var pc = t.gameObject.AddComponent<VRC.SDK3.Dynamics.Constraint.Components.VRCParentConstraint>();
             pc.Sources.Add(new VRC.Dynamics.VRCConstraintSource(b, 1f));
             pc.PositionAtRest = upPos;
@@ -256,7 +270,7 @@ namespace Pyrite9.Sleeve
             pc.GlobalWeight = 1f;
             pc.Locked = true;
             pc.IsActive = true;
-            fs = new FollowShadow { shadow = t, bone = b, left = left, from = cloth, upRot = upRot, upPos = upPos, scale = scale };
+            fs = new FollowShadow { shadow = t, bone = b, left = left, from = cloth, upRot = upRot, upPos = upPos, scale = scale, downScale = downScale };
             followOf[(b, left)] = fs;
             followShadows.Add(fs);
             return t;
@@ -277,13 +291,15 @@ namespace Pyrite9.Sleeve
                 var mine = followShadows.Where(f => f.left == left).ToList();
                 if (mine.Count == 0) continue;
                 log.AppendLine($"  follow shadows {SrSide.Letter(left)}: {mine.Count} ({string.Join(", ", mine.Select(f => $"{f.shadow.name} ← {f.bone.name}"))})");
+                foreach (var f in mine.Where(f => f.ScaleCurve))
+                    log.AppendLine($"  {f.shadow.name}: scale {Fmt(f.downScale)} while down, {Fmt(f.scale)} while rolled");
             }
         }
 
         // PhysBone 소매(10-33). 셰이프를 다 만든 뒤, 웨이트를 옮기기 전 — 걷을 수 없는 쪽은 여기서 실패로 돌린다
         void SortPhysBones(List<Job> jobs)
         {
-            pb = new SleeveRollPb(root, animator, cache, log);
+            pb = new SleeveRollPb(root, animator, cache, log) { preview = previewMeshes != null };
             foreach (var j in jobs)
                 foreach (var r in j.reports)
                     if (SrSide.On(j.c, r.left) && r.ok) pb.Consider(j.cloth, r.left, r.roll);
@@ -350,6 +366,8 @@ namespace Pyrite9.Sleeve
                 if (!SrSide.On(c, r.left)) { RemoveShape(j.mesh, r.left); log.AppendLine($"  {j.cloth.name} {side}: off"); continue; }
                 log.AppendLine($"  {j.cloth.name} {side}: ok={r.ok} sleeve={r.clothVertices} moved={r.movedVertices} skin={r.skinVertices} " +
                                $"forearm={r.forearmMeters:F3}m end={r.sleeveEnd:F2} r={r.clothRadiusMm:F1}mm skin={r.skinRadiusMm:F1}mm" +
+                               // 입은 모양 피부는 그것이 판정을 바꾼 경우만 덧붙인다(기존 줄 그대로 — 0.1.3 A-2b)
+                               (r.clothRadiusMm < r.skinRadiusMm && r.clothRadiusMm >= r.skinWornRadiusMm ? $" skinWorn={r.skinWornRadiusMm:F1}mm" : "") +
                                (r.worn != null ? $" worn [{r.worn}]" + (r.folded > 0 ? $" folded={r.folded}" : "") : "") + $" {r.message}");
                 if (!string.IsNullOrEmpty(r.note)) log.AppendLine($"  {j.cloth.name} {side}: {r.note}");
                 var gs = r.left ? j.g.left : j.g.right;
@@ -371,7 +389,7 @@ namespace Pyrite9.Sleeve
         void WarnAnimatedShapes(Job j)
         {
             if (j.mesh == null || !j.reports.Any(r => SrSide.On(j.c, r.left) && r.ok)) return;
-            if (animatedPaths == null) animatedPaths = SleeveRollPb.AnimatedPaths(root);
+            if (animatedPaths == null) animatedPaths = previewMeshes != null ? SleeveRollPb.AnimatedPathsCached(root) : SleeveRollPb.AnimatedPaths(root);
             var key = "S|" + UnityEditor.AnimationUtility.CalculateTransformPath(j.cloth.transform, root.transform) + "|blendShape.";
             if (!animatedPaths.Any(p => p.StartsWith(key))) return;
             var names = SleeveRollShape.SleeveShapes(cache.Get(j.cloth), animator, n => animatedPaths.Contains(key + n));
@@ -663,29 +681,79 @@ namespace Pyrite9.Sleeve
             if ((previewCopy != null ? previewCopy : body.sharedMesh).GetBlendShapeIndex(name) >= 0) return; // 다른 SleeveRoll이 이미 넣음
             if (unhideDone.Contains((body, left))) return;   // 몫으로만 나눠 넣어 위 이름이 없는 경우
             var shares = live != null ? new List<SleeveRollShape.UnhideShare>() : null;
+            var notes = fxRef != null && shares != null ? new List<string>() : null;
             var d = SleeveRollShape.UnhideDelta(body, animator, left, tCut, cover[left ? 0 : 1], cache, out int nv, out string shapes, out string spared,
-                live != null ? (System.Func<string, bool>)(k => live(body, k)) : null, shares, out float err);
-            if (nv == 0)
+                live != null ? (System.Func<string, bool>)(k => live(body, k)) : null, shares, out float err,
+                notes != null ? (System.Func<string, float>)(k => fxRef(body, k)) : null, notes, out int nz);
+            if (notes != null)
+                foreach (var x in notes)
+                    log.AppendLine(x.StartsWith("WARN ") ? $"WARN {body.name} {SrSide.Letter(left)}: {x.Substring(5)}" : $"  {body.name} {SrSide.Letter(left)}: {x}");
+            if (nv + nz == 0)
             {
                 if (spared.Length > 0) log.AppendLine($"  {body.name} {SrSide.Letter(left)}: nothing to restore — [{spared}] left as set (not under the sleeve)");
                 return;
             }
             unhideDone.Add((body, left));
+            string released = ReleaseToSleeve(body, left, d, shares);
             var mesh = BodyCopy(body, previewCopy);
             if (d != null) mesh.AddBlendShapeFrame(name, 100f, d, null, null);
-            (left ? j.g.left : j.g.right).unhide += nv;
-            log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name} restores {nv} vertices hidden by [{shapes}]" +
-                           (spared.Length > 0 ? $"; [{spared}] left as set (not under the sleeve)" : ""));
+            (left ? j.g.left : j.g.right).unhide += nv + nz;
+            if (nv > 0)
+                log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name} restores {nv} vertices hidden by [{shapes}]" +
+                               (spared.Length > 0 ? $"; [{spared}] left as set (not under the sleeve)" : ""));
+            else if (spared.Length > 0) log.AppendLine($"  {body.name} {SrSide.Letter(left)}: [{spared}] left as set (not under the sleeve)");
+            if (released != null) log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {released}");
             if (shares == null || shares.Count == 0) return;
             foreach (var s in shares)
             {
                 var sn = name + "__" + s.shape;
                 if (mesh.GetBlendShapeIndex(sn) >= 0) continue;
                 mesh.AddBlendShapeFrame(sn, 100f, s.delta, null, null);
-                liveUnhides.Add(new LiveUnhide { body = body, left = left, hide = s.shape, shape = sn, weight = s.weight });
+                liveUnhides.Add(new LiveUnhide { body = body, left = left, hide = s.shape, shape = sn, built = s.built, reference = s.reference });
             }
-            log.AppendLine($"  {body.name} {SrSide.Letter(left)}: split by hide shape — {string.Join(", ", shares.Select(s => name + "__" + s.shape))} follow their shape in FX" +
-                           (d != null ? $", {name} keeps the rest" : $", nothing fixed left ({name} not added)") + $", max |sum − one shape| {err * 1000f:0.######} mm");
+            var kept = shares.Where(s => !s.zero).ToList();
+            if (kept.Count > 0)
+                log.AppendLine($"  {body.name} {SrSide.Letter(left)}: split by hide shape — {string.Join(", ", kept.Select(s => name + "__" + s.shape))} follow their shape in FX" +
+                               (d != null ? $", {name} keeps the rest" : $", nothing fixed left ({name} not added)") + $", max |sum − one shape| {err * 1000f:0.######} mm");
+            // 빌드 때 0인 숨김(0.1.3 B) — FX가 그 셰이프를 켜는 동안만 돌아온다
+            foreach (var s in shares.Where(s => s.zero))
+                log.AppendLine($"  {body.name} {SrSide.Letter(left)}: {name}__{s.shape} restores {s.vertices} vertices hidden by '{s.shape}' while the FX turns it on (built at 0, up to {s.reference:0.##})");
+        }
+
+        /// <summary>
+        /// 새 경로(그쪽 팔의 고른 옷 중 하나라도 SideReport.releasedInner, 0.1.3 A-2c)에서만 — 되돌리기(고정 몫 d·숨김 셰이프별 몫 전부)를 정점마다
+        /// 걷힌 소매가 내준 자리까지만 줄인다(SleeveRollShape.ReleaseRatio, 고른 옷이 여럿이면 정점별 최솟값). 그 밖에는 아무것도 안 바꾼다(null)
+        /// </summary>
+        string ReleaseToSleeve(SkinnedMeshRenderer body, bool left, Vector3[] d, List<SleeveRollShape.UnhideShare> shares)
+        {
+            if (allJobs == null || !allJobs.Any(o => o.mesh != null && SrSide.On(o.c, left) && o.reports.Any(r => r.left == left && r.ok && r.releasedInner))) return null;
+            int n = d != null ? d.Length : shares != null && shares.Count > 0 ? shares[0].delta.Length : 0;
+            if (n == 0) return null;
+            var full = d != null ? (Vector3[])d.Clone() : new Vector3[n];
+            if (shares != null) foreach (var sh in shares) for (int v = 0; v < n; v++) full[v] += sh.delta[v];
+            float[] s = null;
+            foreach (var o in allJobs)
+            {
+                if (o.mesh == null || !SrSide.On(o.c, left) || !o.reports.Any(r => r.left == left && r.ok)) continue;
+                var rv = RolledVertices(cache.Get(o.cloth).Vertices, o.mesh, o.reports);
+                var so = SleeveRollShape.ReleaseRatio(body, full, o.cloth, rv, animator, left, cache, (left ? o.sL : o.sR).margin);
+                if (so == null) continue;
+                if (s == null) s = so;
+                else for (int v = 0; v < n; v++) s[v] = Mathf.Min(s[v], so[v]);
+            }
+            if (s == null) return null;
+            int part = 0, none = 0, all = 0; float sMin = 1f;
+            for (int v = 0; v < n; v++)
+            {
+                if (full[v] == Vector3.zero) continue;
+                all++;
+                if (s[v] >= 1f) continue;
+                if (s[v] <= 0f) none++; else part++;
+                sMin = Mathf.Min(sMin, s[v]);
+                if (d != null) d[v] *= s[v];
+                if (shares != null) foreach (var sh in shares) sh.delta[v] *= s[v];
+            }
+            return $"released only as far as the rolled sleeve leaves room — {part} of {all} vertices partly, {none} kept hidden (min {sMin:F2})";
         }
 
         // 셰이프를 넣을 몸 메시 사본 — 처음 넣을 때 만든다. 미리 보기는 렌더러를 안 건드린다

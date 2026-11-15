@@ -15,7 +15,7 @@ namespace Pyrite9.Sleeve
     /// Same Hold, same blend and no shared curves, so a layer of its own would do the same work for one more layer. The PhysBone itself keeps running, untouched.
     /// The wrist proxies' scale goes into the same states (audit P2): Down = the hand bone's scale, Up = the hand's scale in the garment's bind pose — only on avatars that scale the hand.
     /// So do the finger shadows (audit P3): GlobalWeight Down 1 / Up 0 like the PhysBone shadows, plus their position and scale when the bind pose differs from the bone as it is.
-    /// And the follow shadows (0.1.3-beta4, VRC Parent Constraint): GlobalWeight Down 1 / Up 0.
+    /// And the follow shadows (0.1.3-beta4, VRC Parent Constraint): GlobalWeight Down 1 / Up 0, plus their scale when the bone's scale against the forearm differs from the bind pose's.
     /// </summary>
     static class SleeveRollPbFx
     {
@@ -81,8 +81,11 @@ namespace Pyrite9.Sleeve
                     var path = paths.GetVirtualPathForObject(f.shadow);
                     Curve(down, path, typeof(VRCParentConstraint), "GlobalWeight", 1f);
                     Curve(up, path, typeof(VRCParentConstraint), "GlobalWeight", 0f);
+                    if (f.ScaleCurve) Vec(down, up, path, "m_LocalScale", f.downScale, f.scale);
                 }
-                if (follows.Count > 0) log.AppendLine($"FX: layer '{layer.Name}', {follows.Count} follow shadow curves");
+                if (follows.Count > 0)
+                    log.AppendLine($"FX: layer '{layer.Name}', {follows.Count} follow shadow curves" +
+                                   (follows.Any(f => f.ScaleCurve) ? $", scale on {string.Join(", ", follows.Where(f => f.ScaleCurve).Select(f => f.shadow.name))}" : ""));
             }
             finally
             {

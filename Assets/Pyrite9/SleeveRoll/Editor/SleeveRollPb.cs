@@ -393,7 +393,15 @@ namespace Pyrite9.Sleeve
 
         string Path(Transform t) => AnimationUtility.CalculateTransformPath(t, root.transform);
 
-        HashSet<string> AnimatedPaths() => AnimatedPaths(root);
+        /// <summary>Set by the preview: read the animated paths through the preview cache</summary>
+        internal bool preview;
+
+        HashSet<string> AnimatedPaths() => preview ? AnimatedPathsCached(root) : AnimatedPaths(root);
+
+        static readonly VRCAvatarDescriptor.CustomAnimLayer[] NoLayers = new VRCAvatarDescriptor.CustomAnimLayer[0];
+
+        // missing layer arrays read as empty, like SleeveRollUnhideFx.Read (audit V5)
+        static IEnumerable<VRCAvatarDescriptor.CustomAnimLayer> Layers(VRCAvatarDescriptor d) => (d.baseAnimationLayers ?? NoLayers).Concat(d.specialAnimationLayers ?? NoLayers);
 
         // "E|path" PhysBone enabled, "T|path" transform, "S|path|blendShape.name" a shape weight (0.1.3-beta6) — in any playable layer of the avatar
         internal static HashSet<string> AnimatedPaths(GameObject root)
@@ -402,7 +410,7 @@ namespace Pyrite9.Sleeve
             var d = root.GetComponent<VRCAvatarDescriptor>();
             if (d == null) return set;
             var seen = new HashSet<AnimationClip>();
-            foreach (var layer in d.baseAnimationLayers.Concat(d.specialAnimationLayers))
+            foreach (var layer in Layers(d))
             {
                 if (layer.animatorController == null) continue;
                 foreach (var clip in layer.animatorController.animationClips)
@@ -416,6 +424,35 @@ namespace Pyrite9.Sleeve
                     }
                 }
             }
+            return set;
+        }
+
+        // The preview runs the whole computation again on every settings change; reading the clips' curves is most of AnimatedPaths (audit V5: Salt 3 ms, Kaguya 378 clips 10 ms).
+        // Kept per avatar under a key of every layer's controller and clips (instance ID + dirty count, ~0.05 ms to make) — another controller or an edited clip reads them again.
+        // Callers only read the set. The build always reads them fresh
+        static readonly Dictionary<int, (int[] key, HashSet<string> set)> previewPaths = new Dictionary<int, (int[], HashSet<string>)>();
+
+        internal static HashSet<string> AnimatedPathsCached(GameObject root)
+        {
+            var d = root.GetComponent<VRCAvatarDescriptor>();
+            if (d == null) return new HashSet<string>();
+            var key = new List<int>();
+            foreach (var layer in Layers(d))
+            {
+                var ac = layer.animatorController;
+                if (ac == null) { key.Add(0); continue; }
+                key.Add(ac.GetInstanceID());
+                key.Add(EditorUtility.GetDirtyCount(ac));
+                foreach (var clip in ac.animationClips)
+                {
+                    key.Add(clip != null ? clip.GetInstanceID() : 0);
+                    key.Add(clip != null ? EditorUtility.GetDirtyCount(clip) : 0);
+                }
+            }
+            int id = root.GetInstanceID();
+            if (previewPaths.TryGetValue(id, out var e) && e.key.SequenceEqual(key)) return e.set;
+            var set = AnimatedPaths(root);
+            previewPaths[id] = (key.ToArray(), set);
             return set;
         }
 

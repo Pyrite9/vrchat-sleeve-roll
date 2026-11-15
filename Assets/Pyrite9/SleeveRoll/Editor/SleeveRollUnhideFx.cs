@@ -15,8 +15,10 @@ namespace Pyrite9.Sleeve
     /// <summary>
     /// The unhide shape brings back the arm that a hide shape (say an outfit's MA Shape Changer) shrinks under the sleeve, as that shape was set at build.
     /// When FX turns that hide shape off (the outfit toggled off), a fixed unhide would push the bare arm outward. So a hide shape FX animates gets its own
-    /// share of the unhide (SleeveRoll_Unhide_L__&lt;shape&gt;, SleeveRollBake), and its weight here follows: share = Rolled × (the hide shape now / at build).
-    ///  - every FX clip that writes the hide shape also writes a float parameter (Live) = its value / the build value, key by key — default 1
+    /// share of the unhide (SleeveRoll_Unhide_L__&lt;shape&gt;, SleeveRollBake), and its weight here follows: share = Rolled × (the hide shape now / its reference).
+    /// The reference is the value the share brings back: the build value, or (0.1.3 B) for a shape at 0 at build that FX turns on, the largest value FX writes.
+    ///  - every FX clip that writes the hide shape also writes a float parameter (Live) = its value / the reference, key by key — default build / reference
+    ///    (1 for a shape on at build, 0 for one at 0), so a state without the curve sends the shape and the parameter back together
     ///  - the Down and Up states of the 'Sleeve Roll' layer write Rolled 0 / 1
     ///  - one layer at the end (write defaults on, one state): a Direct blend tree [One → all shares 0] + [Live → 1D on Rolled: 0 → share 0, 1 → share 100].
     ///    Write defaults on, so a Direct tree does not add up frame after frame on avatars with write defaults off; the One child writes 0 when every Live is 0
@@ -33,15 +35,33 @@ namespace Pyrite9.Sleeve
         /// <summary>
         /// Which (body, shape) FX animates — read from the built controllers on the descriptor (after MA: its reactive layers are in there). Reads only.
         /// A hide shape another playable layer animates gets a warning: only FX is followed.
-        /// The controllers are read the first time the answer is asked — only when there is a hidden arm to bring back — so an avatar without one is
-        /// not read at all. If reading them fails, one warning and "not animated" for this build: the old fixed unhide, the rest of the build goes on
+        /// reference: the value FX writes to (body, shape) with the largest magnitude, 0 when FX never writes it (no warnings) — the shapes at 0 at build
+        /// that FX turns on (0.1.3 B).
+        /// The controllers are read the first time either is asked — a hidden arm to bring back, or a body with forearm weights under a sleeve that rolls
+        /// and brings the arm back. If reading them fails, one warning and "not animated" for this build: the old fixed unhide, the rest of the build goes on
         /// </summary>
-        internal static System.Func<SkinnedMeshRenderer, string, bool> Scan(GameObject root, StringBuilder log)
+        internal static System.Func<SkinnedMeshRenderer, string, bool> Scan(GameObject root, StringBuilder log, out System.Func<SkinnedMeshRenderer, string, float> reference)
         {
-            HashSet<string> fx = null;
+            Dictionary<string, float> fx = null;
             Dictionary<string, string> other = null;
             bool failed = false;
             var warned = new HashSet<string>();
+            reference = (body, shape) =>
+            {
+                if (failed) return 0f;
+                try
+                {
+                    if (fx == null) Read(root, out fx, out other);
+                    var key = AnimationUtility.CalculateTransformPath(body.transform, root.transform) + "|blendShape." + shape;
+                    return fx.TryGetValue(key, out var v) ? v : 0f;
+                }
+                catch (System.Exception e)
+                {
+                    failed = true;
+                    log.AppendLine($"WARN FX: could not read the animator controllers ({e.GetType().Name}: {e.Message}) — the arm an outfit hides is brought back as it was at build, even when the outfit is toggled off");
+                    return 0f;
+                }
+            };
             return (body, shape) =>
             {
                 if (failed) return false;
@@ -51,7 +71,7 @@ namespace Pyrite9.Sleeve
                     var key = AnimationUtility.CalculateTransformPath(body.transform, root.transform) + "|blendShape." + shape;
                     if (other.TryGetValue(key, out var where) && warned.Add(key))
                         log.AppendLine($"WARN {body.name}: hide shape '{shape}' is animated in the {where} layer — the arm brought back under a rolled sleeve follows it only in FX");
-                    return fx.Contains(key);
+                    return fx.ContainsKey(key);
                 }
                 catch (System.Exception e)
                 {
@@ -62,9 +82,10 @@ namespace Pyrite9.Sleeve
             };
         }
 
-        static void Read(GameObject root, out HashSet<string> fx, out Dictionary<string, string> other)
+        // fx: key → the value written with the largest magnitude (every key of every curve)
+        static void Read(GameObject root, out Dictionary<string, float> fx, out Dictionary<string, string> other)
         {
-            fx = new HashSet<string>();
+            fx = new Dictionary<string, float>();
             other = new Dictionary<string, string>();
             var desc = root.GetComponent<VRCAvatarDescriptor>();
             if (desc == null) return;
@@ -80,7 +101,13 @@ namespace Pyrite9.Sleeve
                     {
                         if (b.type != typeof(SkinnedMeshRenderer) || !b.propertyName.StartsWith("blendShape.")) continue;
                         var key = b.path + "|" + b.propertyName;
-                        if (isFx) fx.Add(key);
+                        if (isFx)
+                        {
+                            float v = 0f;
+                            var cv = AnimationUtility.GetEditorCurve(clip, b);
+                            if (cv != null) foreach (var k in cv.keys) if (Mathf.Abs(k.value) > Mathf.Abs(v)) v = k.value;
+                            if (!fx.TryGetValue(key, out var was) || Mathf.Abs(v) > Mathf.Abs(was)) fx[key] = v;
+                        }
                         else if (!other.ContainsKey(key)) other[key] = l.type.ToString();
                     }
                 }
@@ -128,10 +155,11 @@ namespace Pyrite9.Sleeve
                     {
                         var cv = clip.GetFloatCurve(path, typeof(SkinnedMeshRenderer), prop);
                         if (cv == null) continue;
-                        clip.SetFloatCurve("", typeof(Animator), param, Scaled(cv, 1f / first.weight));
+                        clip.SetFloatCurve("", typeof(Animator), param, Scaled(cv, 1f / first.reference));
                         mirrored++;
                     }
-                    fx.SetParameter(param, new AnimatorControllerParameter { name = param, type = AnimatorControllerParameterType.Float, defaultFloat = 1f });
+                    // default = build / reference: 1 for a shape on at build (as before), 0 for one at 0 (0.1.3 B)
+                    fx.SetParameter(param, new AnimatorControllerParameter { name = param, type = AnimatorControllerParameterType.Float, defaultFloat = first.built / first.reference });
                     var off = VirtualClip.Create(OffClip + n);
                     var on = VirtualClip.Create(OnClip + n);
                     foreach (var u in g)
@@ -151,7 +179,8 @@ namespace Pyrite9.Sleeve
                         new VirtualBlendTree.VirtualChildMotion { Motion = on, Threshold = 1f },
                     }.ToImmutableList();
                     children.Add(new VirtualBlendTree.VirtualChildMotion { Motion = rolled, DirectBlendParameter = param });
-                    log.AppendLine($"FX: {first.body.name} '{first.hide}' (built at {first.weight:0.##}) → '{param}' in {mirrored} clips — drives {string.Join(", ", g.Select(u => u.shape))}");
+                    log.AppendLine($"FX: {first.body.name} '{first.hide}' (built at {first.built:0.##}" + (first.built != first.reference ? $", FX up to {first.reference:0.##}" : "") +
+                                   $") → '{param}' in {mirrored} clips — drives {string.Join(", ", g.Select(u => u.shape))}");
                     if (mirrored == 0) log.AppendLine($"WARN FX: no curve for '{first.hide}' on {first.body.name} found — its share of the restored arm stays on while rolled");
                     n++;
                 }

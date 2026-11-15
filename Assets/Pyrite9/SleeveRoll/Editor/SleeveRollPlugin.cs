@@ -68,7 +68,7 @@ namespace Pyrite9.Sleeve
                 {
                     rec.built = true;
                     var bake = new SleeveRollBake(ctx.AvatarRootObject, animator, log, rec, state.deleteTargets, state.boneMap, state.known);
-                    bake.live = SleeveRollUnhideFx.Scan(ctx.AvatarRootObject, log);
+                    bake.live = SleeveRollUnhideFx.Scan(ctx.AvatarRootObject, log, out bake.fxRef);
                     var pb = bake.Run(comps);
                     // FX 컨텍스트는 넣을 게 있을 때만 — 그림자도 대리 본 스케일도 손가락·따라가기 그림자도 없는 아바타는 컨트롤러가 그대로 남는다
                     if (pb != null && (pb.Chains.Count > 0 || bake.proxyScales.Count > 0 || bake.fingerShadows.Count > 0 || bake.followShadows.Count > 0))

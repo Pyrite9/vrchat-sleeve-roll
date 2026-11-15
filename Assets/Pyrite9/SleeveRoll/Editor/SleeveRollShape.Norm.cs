@@ -64,6 +64,8 @@ namespace Pyrite9.Sleeve
                 public bool[] hid;   // 셰이프로 접혀 숨은 정점(0.1.3-beta6) — wL은 이미 0, 겹 두께만 그 면을 뺀다. null = 없음
                 public D3 e, sh, ax, u, v; public double L; public bool hasUpper;
                 public double[,] Rs, Rd;
+                /// <summary>입은 모양 피부 격자(Rs와 같은 단위) — skinWornMedian만 잰다. 없으면 null(0.1.3 A-2b)</summary>
+                public double[,] Rw;
                 public double tT, t0, ease, margin, snug, foldL, foldA, wLow, wHigh;
                 public double t0w, cone;   // norm_core가 움직일 때 정한다(Python c["t0w"], c["cone"])
             }
@@ -77,7 +79,7 @@ namespace Pyrite9.Sleeve
 
             internal sealed class Out
             {
-                public D3[] rolled; public double[] rollW; public int movedVerts; public double skinMedian;
+                public D3[] rolled; public double[] rollW; public int movedVerts; public double skinMedian, skinWornMedian;
             }
 
             // ================ 기초 ================
@@ -232,7 +234,7 @@ namespace Pyrite9.Sleeve
             // ================ 걷기 사상 ================
             sealed class Map
             {
-                public double t0, ease, end, pull, endPull, tT, kComp, taper, radialStart, kEven; public bool even;
+                public double t0, ease, end, pull, endPull, tT, kComp, taper, radialStart, kEven; public bool even, evenOk;
             }
 
             static Map roll_map(In d, double end, double endPull, double t0, double ease)
@@ -243,8 +245,12 @@ namespace Pyrite9.Sleeve
                 m.kComp = (m.tT - t0) / (end - t0);
                 m.taper = clip01((m.tT - t0) / ROLL_LEN_BASE - 1.0);
                 m.radialStart = t0 - TAPER_LEAD * m.taper;
-                m.kEven = (m.tT - t0 - ease * 0.5) / (end - t0 - ease * 0.5);
-                m.even = 1.0 - (1.0 - m.kComp) * EASE_SLOPE_PEAK < MIN_EASE_SLOPE && m.kEven > 0.0;
+                double den = end - t0 - ease * 0.5;
+                m.kEven = (m.tT - t0 - ease * 0.5) / den;
+                // 분모가 0 이하면 고른 사상을 안 쓴다(audit P4 — 일반 경로 G1과 같은 가드): 분자·분모가 둘 다 음수여도 kEven > 0이라 소매를 손 쪽으로 늘이고,
+                // 분모가 0에 가까우면 팔뚝 길이의 몇 배로 튄다. 분모가 양수일 때는 전과 같다(기준 구현에는 없는 C# 조건 — 그 창에선 기준과 다르다)
+                m.evenOk = den > 0.0;
+                m.even = 1.0 - (1.0 - m.kComp) * EASE_SLOPE_PEAK < MIN_EASE_SLOPE && m.kEven > 0.0 && m.evenOk;
                 return m;
             }
 
@@ -253,6 +259,9 @@ namespace Pyrite9.Sleeve
                 double x = (t - m.t0) / m.ease;
                 return x < 1.0 ? m.t0 + m.ease * (x + (m.kEven - 1.0) * (x * x * x - 0.5 * x * x * x * x)) : m.t0 + m.ease * (1.0 + m.kEven) * 0.5 + (t - m.t0 - m.ease) * m.kEven;
             }
+
+            // 정규화 섞기(G > 0)가 넘어가는 고른 사상 — m.even과 무관하게 쓰지만 분모가 0 이하면 선형 압축으로(audit P4). 분모가 양수면 even_roll 그대로
+            static double even_or_lin(Map m, double t) => m.evenOk ? even_roll(m, t) : m.t0 + (t - m.t0) * m.kComp;
 
             static double map_full(Map m, double t) => t <= m.t0 ? t : m.even ? even_roll(m, t) : m.t0 + (t - m.t0) * m.kComp;
             static double map_ease_end(Map m) => m.even ? even_roll(m, m.t0 + m.ease) : m.t0 + m.ease * m.kComp;
@@ -1152,7 +1161,7 @@ namespace Pyrite9.Sleeve
                 return radii * (1.0 - W) + Hw * W;
             }
 
-            sealed class RollResult { public D3[] rolled; public double[] rollW; public int movedVerts; public double skinMedian; public double pull; }
+            sealed class RollResult { public D3[] rolled; public double[] rollW; public int movedVerts; public double skinMedian, skinWornMedian; public double pull; }
 
             static RollResult roll_deltas(In d, D3[] Vn, double[] W, double endPull)
             {
@@ -1193,6 +1202,7 @@ namespace Pyrite9.Sleeve
                 var t2s = new double[n]; var weight = new double[n]; var floors = new double[n]; var t2a = new double[n];
                 var touched = new bool[n]; var easeA = new double[n]; var tFullA = new double[n]; var foldA = new double[n];
                 var skinList = new List<double>();
+                var skinWList = d.Rw != null ? new List<double>() : null;   // 같은 자리의 입은 모양 피부(판정용 — 계산엔 안 쓴다)
                 var rollW = new double[nv];
                 int movedVerts = 0;
                 for (int k = 0; k < n; k++)
@@ -1204,7 +1214,7 @@ namespace Pyrite9.Sleeve
                     if (G > 0.0)   // 고른 사상으로 넘어간다: 재료가 많을수록 안 고른 사상은 t2가 되돌아 뒤집힌다
                     {
                         double xW = clip01((T[k] - t0) / (end - t0));
-                        double tE = T[k] <= t0 ? T[k] : even_roll(m, t0 + (end - t0) * xW * (cw + (1.0 - cw) * xW));
+                        double tE = T[k] <= t0 ? T[k] : even_or_lin(m, t0 + (end - t0) * xW * (cw + (1.0 - cw) * xW));
                         t2 = t2 + (T[k] + (tE - T[k]) * F[k] - t2) * G;
                         tFull = tFull + (tE - tFull) * G;
                     }
@@ -1222,7 +1232,7 @@ namespace Pyrite9.Sleeve
                     rollW[idx[k]] = w;
                     if (w <= 0.0) continue;
                     movedVerts++;
-                    if (F[k] > F_END) skinList.Add(rskin);
+                    if (F[k] > F_END) { skinList.Add(rskin); skinWList?.Add(skin_at(d.Rw, tFull - m.pull, A[k])); }
                 }
                 radii = smooth_radii(tris, idx, key, count, radii, weight);
                 radii = smooth_lips(tris, nv, idx, A, radii, t2s, weight, floors, L, map_ease_end(m) + LIP_LEAD);
@@ -1251,7 +1261,9 @@ namespace Pyrite9.Sleeve
                 for (int i = 0; i < nv; i++) rolled[i] = V0[i] + delta[i];
                 double med = 0.0;
                 if (skinList.Count > 0) { skinList.Sort(); med = skinList[skinList.Count / 2]; }
-                return new RollResult { rolled = rolled, rollW = rollW, movedVerts = movedVerts, skinMedian = med, pull = m.pull };
+                double medW = 0.0;
+                if (skinWList != null && skinWList.Count > 0) { skinWList.Sort(); medW = skinWList[skinWList.Count / 2]; }
+                return new RollResult { rolled = rolled, rollW = rollW, movedVerts = movedVerts, skinMedian = med, skinWornMedian = medW, pull = m.pull };
             }
 
             // ================ 이동 가중 복원 ================
@@ -1347,13 +1359,13 @@ namespace Pyrite9.Sleeve
                 if (r == null) return null;
                 info.pull = r.pull;
                 var rolled = stretch_repair(d, r.rolled, W, info);
-                return new Out { rolled = rolled, rollW = r.rollW, movedVerts = r.movedVerts, skinMedian = r.skinMedian };
+                return new Out { rolled = rolled, rollW = r.rollW, movedVerts = r.movedVerts, skinMedian = r.skinMedian, skinWornMedian = r.skinWornMedian };
             }
 
             internal static void SetSkin(In d, double[,] Rs) { d.Rs = Rs; d.Rd = dilate_skin(Rs); }
 
             /// <summary>빌드 경로. true = 정규화가 움직였다(delta를 그대로 쓴다, 소매가 다 줄어 못 걷으면 null). false = 이동 0 — 기존 RollDeltas로</summary>
-            internal static bool TryRoll(Cache.Entry ce, in Forearm f, float[,] R, in Settings s, ref SideReport rep, out Vector3[] delta)
+            internal static bool TryRoll(Cache.Entry ce, in Forearm f, float[,] R, float[,] Rw, in Settings s, ref SideReport rep, out Vector3[] delta)
             {
                 delta = null;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1369,6 +1381,11 @@ namespace Pyrite9.Sleeve
                 var Rs = new double[NT, NA];
                 for (int i = 0; i < NT; i++) for (int j = 0; j < NA; j++) Rs[i, j] = R[i, j] * k;
                 SetSkin(d, Rs);   // norm_core의 시작 원뿔이 Rs를 읽는다
+                if (Rw != null)
+                {
+                    d.Rw = new double[NT, NA];
+                    for (int i = 0; i < NT; i++) for (int j = 0; j < NA; j++) d.Rw[i, j] = Rw[i, j] * k;
+                }
                 var info = new Info();
                 var off = norm_core(d, info);
                 if (off == null) { TotalNormMs += sw.Elapsed.TotalMilliseconds; return false; }
@@ -1401,6 +1418,7 @@ namespace Pyrite9.Sleeve
                 }
                 rep.movedVertices = o.movedVerts;
                 rep.skinRadiusMm = (float)(o.skinMedian * 1000.0);
+                rep.skinWornRadiusMm = (float)(o.skinWornMedian * 1000.0);
                 return true;
             }
         }

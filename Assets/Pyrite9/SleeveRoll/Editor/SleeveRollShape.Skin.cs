@@ -7,11 +7,13 @@ namespace Pyrite9.Sleeve
 {
     public static partial class SleeveRollShape
     {
-        // 피부 반지름 (t, θ) — skins에서 아래팔·손 웨이트가 큰 정점의 칸별 최대 축 거리. occupied: 표본이 있는 t 칸. 표본 수는 rep.skinVertices
+        // 피부 반지름 (t, θ) — skins에서 아래팔·손 웨이트가 큰 정점의 칸별 최대 축 거리. occupied: 표본이 있는 t 칸. 표본 수는 rep.skinVertices.
+        // Rw: 같은 표본을 입은 모양으로만(기본 정점과의 최댓값 없이) 잰 격자 — 오선택 판정·로그에만 쓴다(걷기 계산은 R). 걷힌 안쪽 옷은 두 격자에 같은 값(0.1.3 A-2b)
         static float[,] SampleSkin(SkinnedMeshRenderer cloth, IList<SkinnedMeshRenderer> skins, IDictionary<SkinnedMeshRenderer, Vector3[]> rolled,
-            Cache cache, in Forearm f, out bool[] occupied, ref SideReport rep)
+            Cache cache, in Forearm f, out bool[] occupied, out float[,] Rw, ref SideReport rep)
         {
             var R = new float[NT, NA];
+            Rw = new float[NT, NA];
             occupied = new bool[NT];
             foreach (var skin in skins)
             {
@@ -40,6 +42,8 @@ namespace Pyrite9.Sleeve
                     // 재면 바깥 옷 피부 격자의 아무 칸에나 얇은 피부(구멍)를 찍는다(CampusKnit 카디건 미리 보기↔빌드 2.6 mm)
                     if (float.IsNaN(sv[i].x)) continue;
                     f.Cyl(toCloth.MultiplyPoint3x4(sv[i]), out var t, out var r, out var a);
+                    int wi = TBin(t), wj = ABin(a);
+                    if (r > Rw[wi, wj]) Rw[wi, wj] = r;
                     if (sb != null && (sb[i].x != sv[i].x || sb[i].y != sv[i].y || sb[i].z != sv[i].z))
                     {
                         f.Cyl(toCloth.MultiplyPoint3x4(sb[i]), out var tb, out var rb, out var ab);

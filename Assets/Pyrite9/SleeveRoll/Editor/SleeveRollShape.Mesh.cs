@@ -183,7 +183,8 @@ namespace Pyrite9.Sleeve
 
                 /// <summary>
                 /// 셰이프 계산의 아래팔·위팔 웨이트(0.1.3-beta5). 걷힌 뒤 아래팔에 고정될 본(따라가기 그림자 대상 — moving 중 그쪽 아래팔 서브트리 밖)의
-                /// 웨이트를 아래팔 웨이트로 본다: wc(아래팔 서브트리)에 더하고, 그중 위팔 서브트리 본 몫은 wu에서 뺀다.
+                /// 웨이트를 아래팔 웨이트로 본다: wc(아래팔 서브트리)에 더한다. wu(위팔 서브트리 — 아래팔 포함, 위팔 당김의 배수)는 아래팔 웨이트를 이미 담으므로
+                /// 위팔 서브트리 안의 그 본 몫은 그대로 두고, 위팔 서브트리 밖(가슴 밑 등) 몫만 더한다(1 상한) — 그래야 그 정점이 순수 아래팔 정점과 같이 당겨진다.
                 /// 아래팔 서브트리 웨이트가 0.01 넘는 정점(소매 멤버)만 — 아래팔 웨이트 없는 PB 자락은 그대로. 바뀌는 정점이 없으면 원래 배열 그대로(같은 객체)
                 /// </summary>
                 public void RollWeights(Transform lower, Transform upper, HashSet<Transform> moving, out float[] wc, out float[] wu)
@@ -216,9 +217,9 @@ namespace Pyrite9.Sleeve
                                 if (b.weight <= 0f || b.boneIndex >= follow.Length || !follow[b.boneIndex] || wc[v] <= 0.01f) continue;
                                 if (nc == null) nc = (float[])wc.Clone();
                                 nc[v] += b.weight;
-                                if (!underUpper[b.boneIndex] || wu == null) continue;
+                                if (underUpper[b.boneIndex] || wu == null) continue;
                                 if (nu == null) nu = (float[])wu.Clone();
-                                nu[v] = Mathf.Max(0f, nu[v] - b.weight);
+                                nu[v] = Mathf.Min(1f, nu[v] + b.weight);
                             }
                     }
                     if (nc != null) wc = nc;

@@ -37,6 +37,10 @@ namespace Pyrite9.Sleeve
             public string message;
             public int clothVertices, skinVertices, movedVertices;
             public float forearmMeters, sleeveEnd, clothRadiusMm, skinRadiusMm;
+            /// <summary>skinRadiusMm과 같은 자리를 입은 모양 피부(안쪽 옷의 숨김·줄임 셰이프를 안 되돌린 것)로 잰 값 — 오선택 판정용(0.1.3 A-2b)</summary>
+            public float skinWornRadiusMm;
+            /// <summary>입은 채로는 바깥인데 걷는 동안 되돌려지는 안쪽보다 가는 소매(note "rolled over an inner layer…") — 되돌리기를 걷힌 소매가 내준 자리까지만 푼다(0.1.3 A-2c)</summary>
+            public bool releasedInner;
             /// <summary>손목에서 팔꿈치 쪽으로 피부 메시가 이어지는 데까지(t) — 이보다 팔꿈치 쪽은 몸이 잘려 없다. 실제로 걷은 자리 rolledTo는 이 너머로 밀린다</summary>
             public float skinFrom, rolledTo;
             /// <summary>피부가 늦게 시작해 거기까지만 걷었다(ok인 채) — 빌드·미리 보기에 WARN도 낸다(0.1.3-beta4)</summary>
@@ -139,16 +143,19 @@ namespace Pyrite9.Sleeve
             if (Array.IndexOf(ce.bones, f.lower) < 0)
                 rep.note = "forearm bone not in the mesh — frame derived from its child bone\n    " + Diagnose(animator, left, cache, ce);
 
-            var R = SampleSkin(cloth, skins, rolled, cache, f, out var occupied, ref rep);
+            var R = SampleSkin(cloth, skins, rolled, cache, f, out var occupied, out var Rw, ref rep);
             if (rep.skinVertices == 0) { rep.message = "no skin (body) mesh found on the forearm"; return null; }
             rep.skinFrom = SkinStart(occupied);
-            if (rep.skinFrom + SkinOverlap > s.tTarget)
+            // 피부가 늦게 시작해 걷는 자리가 실제로 밀렸을 때만 안내한다 — Roll To가 이미 그보다 손목 쪽이면 밀리지 않았다(audit V3)
+            bool pushed = rep.skinFrom + SkinOverlap > s.tTarget;
+            if (pushed)
             {
                 s.tTarget = Mathf.Min(1f, rep.skinFrom + SkinOverlap);
                 s.t0 = Mathf.Min(s.t0, s.tTarget - 0.05f);
             }
             rep.rolledTo = s.tTarget;
             SmoothSkin(R);
+            SmoothSkin(Rw);
 
             // 입은 모양(0.1.3-beta6): 켜진 셰이프가 피부 안으로 접어 넣은 소매 정점은 걷기 계산에서 뺀다(소매 웨이트 0) — 걷은 뒤 이웃을 따라 숨은 채로 옮긴다
             rep.worn = WornNote(ce, f);
@@ -173,19 +180,27 @@ namespace Pyrite9.Sleeve
             }
 
             // 정규화: 이동이 정확히 0이면 기존 경로 그대로. 움직인 소매는 정규화 경로만 탄다(SleeveRollShape.Norm.cs)
-            var delta = Norm6.TryRoll(ce, f, R, s, ref rep, out var normDelta) ? normDelta : RollDeltas(ce, f, R, sleeve, s, ref rep);
+            var delta = Norm6.TryRoll(ce, f, R, Rw, s, ref rep, out var normDelta) ? normDelta : RollDeltas(ce, f, R, Rw, sleeve, s, ref rep);
             if (delta == null) return null;
             if (folded != null) FollowFolded(ce, f, R, folded, delta, rep.roll);
             // 마지막 안전망(읽기만 — 계산은 안 바꾼다): 깨진 이동이 셰이프로 들어가면 인게임에서 메시가 터진다. 그쪽만 실패로
             var broken = Broken(ce.Vertices, delta, f);
             if (broken != null) { rep.message = broken; return null; }
-            // 소매가 피부보다 가늘면 대상을 잘못 고른 것(몸 메시를 옷으로) — 걷으면 몸이 부풀어 오른다
-            if (rep.clothRadiusMm < rep.skinRadiusMm)
+            // 소매가 피부보다 가늘면 대상을 잘못 고른 것(몸 메시를 옷으로) — 걷으면 몸이 부풀어 오른다.
+            // 피부는 입은 모양으로 잰다: 안쪽 옷이 셰이프로 줄어 입혀져 있으면(Autumn Blazer 셔츠 Arm_shrink) 입은 채로는 소매가 바깥이다(0.1.3 A-2b)
+            if (rep.clothRadiusMm < rep.skinWornRadiusMm)
             {
-                rep.message = $"the sleeve ({rep.clothRadiusMm:F1} mm) is thinner than the skin ({rep.skinRadiusMm:F1} mm) — the picked mesh looks like a body, not a garment";
+                rep.message = $"the sleeve ({rep.clothRadiusMm:F1} mm) is thinner than the skin ({rep.skinWornRadiusMm:F1} mm) — the picked mesh looks like a body, not a garment";
                 return null;
             }
-            if (rep.skinFrom + SkinOverlap > 0.3f && rep.rolledTo > 0f)
+            // 입은 채로는 바깥인데 걷는 동안 되돌려지는 안쪽보다는 가늘다 — 걷기는 되돌린 피부 위로(WARN 아님)
+            if (rep.clothRadiusMm < rep.skinRadiusMm)
+            {
+                rep.note = (rep.note != null ? rep.note + "\n    " : "") +
+                           $"rolled over an inner layer that is released while rolled (skin {rep.skinWornRadiusMm:F1} mm as worn, {rep.skinRadiusMm:F1} mm released; sleeve {rep.clothRadiusMm:F1} mm)";
+                rep.releasedInner = true;
+            }
+            if (pushed && rep.skinFrom + SkinOverlap > 0.3f && rep.rolledTo > 0f)
             {
                 rep.message = $"forearm skin starts at t={rep.skinFrom:F2} — rolled only to there (t={rep.rolledTo:F2})";
                 rep.skinShort = true;
@@ -479,7 +494,7 @@ namespace Pyrite9.Sleeve
         }
 
         // 소매를 [t0, 소매 끝] → [t0, tTarget]로 압축하고 반지름을 피부 + 여유 + 겹 두께 + 남은 헐렁함 + 주름으로. rep.roll·movedVertices·skinRadiusMm을 채운다
-        static Vector3[] RollDeltas(Cache.Entry ce, in Forearm f, float[,] R, Sleeve sl, in Settings s, ref SideReport rep)
+        static Vector3[] RollDeltas(Cache.Entry ce, in Forearm f, float[,] R, float[,] Rw, Sleeve sl, in Settings s, ref SideReport rep)
         {
             var verts = ce.Vertices;
             var idx = sl.idx;
@@ -513,6 +528,7 @@ namespace Pyrite9.Sleeve
             var delta = new Vector3[verts.Length];
             rep.roll = new float[verts.Length];
             var skinList = new List<float>();
+            var skinWList = new List<float>();   // 같은 자리의 입은 모양 피부(판정용 — 계산엔 안 쓴다)
             var roll = new Roll { radii = (float[])sl.R.Clone(), t2s = new float[n], weight = new float[n], floors = new float[n], touched = new bool[n] };
             for (int k = 0; k < n; k++)
             {
@@ -545,9 +561,10 @@ namespace Pyrite9.Sleeve
                 rep.roll[idx[k]] = w;
                 if (w <= 0f) continue;   // 반지름만 줄어드는 앞쪽은 걷힘 수·피부 측정에 안 넣는다
                 rep.movedVertices++;
-                if (F > 0.5f) skinList.Add(rskin);
+                if (F > 0.5f) { skinList.Add(rskin); skinWList.Add(SkinAt(Rw, tFull - map.pull, a)); }
             }
             if (skinList.Count > 0) { skinList.Sort(); rep.skinRadiusMm = skinList[skinList.Count / 2] * mPerUnit * 1000f; }
+            if (skinWList.Count > 0) { skinWList.Sort(); rep.skinWornRadiusMm = skinWList[skinWList.Count / 2] * mPerUnit * 1000f; }
             SmoothRadii(ce, sl, roll);
             SmoothLips(ce, sl, roll, L, mPerUnit, map.EaseEnd + LipStartLead);
             for (int k = 0; k < n; k++)
